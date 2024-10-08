@@ -1,74 +1,84 @@
 # coding=utf-8
 # The generic foreign key is implemented after this example:
 # https://docs.sqlalchemy.org/en/20/_modules/examples/generic_associations/generic_fk.html
-import re
 import datetime as dt
+import os
+import re
 from typing import Any
 from zoneinfo import ZoneInfo
+
+from google.protobuf.wrappers_pb2 import BoolValue, FloatValue
+from omni.pro.user.access import INTERNAL_USER
+from omni_pro_grpc.v1.tasks.clocked_pb2 import Clocked as ClockedScheduleProto
+from omni_pro_grpc.v1.tasks.crontab_pb2 import Crontab as CrontabScheduleProto
+from omni_pro_grpc.v1.tasks.interval_pb2 import Interval as IntervalScheduleProto
+from omni_pro_grpc.v1.tasks.periodic_task_pb2 import PeriodicTask as PeriodicTaskScheduleProto
+from omni_pro_grpc.v1.tasks.solar_pb2 import Solar as SolarScheduleProto
+
 try:
     from zoneinfo import available_timezones
 except ImportError:
     from backports.zoneinfo import available_timezones
+
 import enum
+
 import sqlalchemy as sa
 from celery import schedules
 from celery.utils.log import get_logger
-from celery.utils.time import maybe_make_aware, make_aware
+from celery.utils.time import make_aware, maybe_make_aware
 from sqlalchemy import event
 from sqlalchemy.future import Connection
-from sqlalchemy.orm import (Session, backref, foreign, relationship, remote,
-                            validates)
+from sqlalchemy.orm import Session, backref, foreign, relationship, remote, validates
 from sqlalchemy.sql import insert, select, update
 
 from .clockedschedule import clocked
 from .session import ModelBase
 from .tzcrontab import TzAwareCrontab
 
-logger = get_logger('sqlalchemy_celery_beat.models')
+logger = get_logger("sqlalchemy_celery_beat.models")
 
 
 class ModelMixin(object):
 
     @classmethod
-    def create(cls, **kw):
+    def create_mixin(cls, **kw):
         return cls(**kw)
 
-    def update(self, **kw):
+    def update_mixin(self, **kw):
         for attr, value in kw.items():
             setattr(self, attr, value)
         return self
 
 
 class Period(str, enum.Enum):
-    DAYS = 'days'
-    HOURS = 'hours'
-    MINUTES = 'minutes'
-    SECONDS = 'seconds'
-    MICROSECONDS = 'microseconds'
+    DAYS = "days"
+    HOURS = "hours"
+    MINUTES = "minutes"
+    SECONDS = "seconds"
+    MICROSECONDS = "microseconds"
 
 
 class SolarEvent(str, enum.Enum):
-    DAWN_ASTRONOMICAL = 'dawn_astronomical'
-    DAWN_NAUTICAL = 'dawn_nautical'
-    DAWN_CIVIL = 'dawn_civil'
-    SUNRISE = 'sunrise'
-    SOLAR_NOON = 'solar_noon'
-    SUNSET = 'sunset'
-    DUSK_CIVIL = 'dusk_civil'
-    DUSK_NAUTICAL = 'dusk_nautical'
-    DUSK_ASTRONOMICAL = 'dusk_astronomical'
+    DAWN_ASTRONOMICAL = "dawn_astronomical"
+    DAWN_NAUTICAL = "dawn_nautical"
+    DAWN_CIVIL = "dawn_civil"
+    SUNRISE = "sunrise"
+    SOLAR_NOON = "solar_noon"
+    SUNSET = "sunset"
+    DUSK_CIVIL = "dusk_civil"
+    DUSK_NAUTICAL = "dusk_nautical"
+    DUSK_ASTRONOMICAL = "dusk_astronomical"
 
 
 class PeriodicTaskChanged(ModelBase, ModelMixin):
     """Helper table for tracking updates to periodic tasks."""
-    __table_args__ = {
-        'sqlite_autoincrement': False,
-        'schema': 'celery_schema'
-    }
+
+    __table_args__ = {"sqlite_autoincrement": False, "schema": "celery_schema"}
 
     id = sa.Column(sa.Integer, primary_key=True)
     last_update = sa.Column(
-        sa.DateTime(timezone=True), nullable=False, default=lambda: maybe_make_aware(dt.datetime.now(dt.UTC)))
+        sa.DateTime(timezone=True), nullable=False, default=lambda: maybe_make_aware(dt.datetime.now(dt.UTC))
+    )
 
     @classmethod
     def changed(cls, mapper, connection, target):
@@ -87,16 +97,23 @@ class PeriodicTaskChanged(ModelBase, ModelMixin):
         :param connection: the Connection being used
         :param target: the mapped instance being persisted
         """
-        logger.info('Database last time set to now')
-        s = connection.scalar(select(PeriodicTaskChanged).
-                              where(PeriodicTaskChanged.id == 1).limit(1))
+        logger.info("Database last time set to now")
+        s = connection.scalar(select(PeriodicTaskChanged).where(PeriodicTaskChanged.id == 1).limit(1))
         if not s:
-            s = connection.execute(insert(PeriodicTaskChanged).
-                                   values(id=1, last_update=maybe_make_aware(dt.datetime.now(dt.UTC))))
+            # omni audit parameters
+            tenant = target.tenant
+            updated_by = target.updated_by
+            s = connection.execute(
+                insert(PeriodicTaskChanged).values(
+                    id=1, last_update=maybe_make_aware(dt.datetime.now(dt.UTC)), tenant=tenant, updated_by=updated_by
+                )
+            )
         else:
-            s = connection.execute(update(PeriodicTaskChanged).
-                                   where(PeriodicTaskChanged.id == 1).
-                                   values(last_update=maybe_make_aware(dt.datetime.now(dt.UTC))))
+            s = connection.execute(
+                update(PeriodicTaskChanged)
+                .where(PeriodicTaskChanged.id == 1)
+                .values(last_update=maybe_make_aware(dt.datetime.now(dt.UTC)))
+            )
 
     @classmethod
     def update_from_session(cls, session: Session, commit: bool = True):
@@ -119,98 +136,124 @@ class PeriodicTaskChanged(ModelBase, ModelMixin):
 class PeriodicTask(ModelBase, ModelMixin):
 
     __table_args__ = (
-        sa.CheckConstraint(sa.column('priority').between(0, 255)),
-        {
-            'sqlite_autoincrement': True,
-            'schema': 'celery_schema'
-        }
+        sa.CheckConstraint(sa.column("priority").between(0, 255)),
+        {"sqlite_autoincrement": True, "schema": "celery_schema"},
     )
 
     id = sa.Column(sa.Integer, primary_key=True, autoincrement=True)
     # name
-    name = sa.Column(sa.String(255), unique=True, nullable=False,
-                     doc='Name',
-                     comment='Short Description For This Task')
+    name = sa.Column(sa.String(255), unique=True, nullable=False, doc="Name", comment="Short Description For This Task")
     # task name
-    task = sa.Column(sa.String(255), nullable=False,
-                     doc='Task Name',
-                     comment='The Name of the Celery Task that Should be Run.  '
-                     '(Example: "proj.tasks.import_contacts")')
+    task = sa.Column(
+        sa.String(255),
+        nullable=False,
+        doc="Task Name",
+        comment="The Name of the Celery Task that Should be Run.  " '(Example: "proj.tasks.import_contacts")',
+    )
 
-    args = sa.Column(sa.Text(), default='[]', nullable=False,
-                     doc='Positional Arguments',
-                     comment='JSON encoded positional arguments '
-                     '(Example: ["arg1", "arg2"])')
-    kwargs = sa.Column(sa.Text(), default='{}', nullable=False,
-                       doc='Keyword Arguments',
-                       comment='JSON encoded keyword arguments '
-                       '(Example: {"argument": "value"})')
+    args = sa.Column(
+        sa.Text(),
+        default="[]",
+        nullable=False,
+        doc="Positional Arguments",
+        comment="JSON encoded positional arguments " '(Example: ["arg1", "arg2"])',
+    )
+    kwargs = sa.Column(
+        sa.Text(),
+        default="{}",
+        nullable=False,
+        doc="Keyword Arguments",
+        comment="JSON encoded keyword arguments " '(Example: {"argument": "value"})',
+    )
     # queue for celery
-    queue = sa.Column(sa.String(255),
-                      doc='Queue Override',
-                      comment='Queue defined in CELERY_TASK_QUEUES. '
-                      'Leave None for default queuing.')
+    queue = sa.Column(
+        sa.String(255),
+        doc="Queue Override",
+        comment="Queue defined in CELERY_TASK_QUEUES. " "Leave None for default queuing.",
+    )
     # exchange for celery
-    exchange = sa.Column(sa.String(255), doc='Exchange',
-                         comment='Override Exchange for low-level AMQP routing')
+    exchange = sa.Column(sa.String(255), doc="Exchange", comment="Override Exchange for low-level AMQP routing")
     # routing_key for celery
-    routing_key = sa.Column(sa.String(255), doc='Routing Key',
-                            comment='Override Routing Key for low-level AMQP routing')
-    headers = sa.Column(sa.Text,
-                        default='{}',
-                        doc='AMQP Message Headers',
-                        comment='JSON encoded message headers for the AMQP message.',
-                        )
-    priority = sa.Column(sa.Integer(),
-                         doc='Priority',
-                         comment='Priority Number between 0 and 255. '
-                         'Supported by: RabbitMQ, Redis (priority reversed, 0 is highest).')
-    expires = sa.Column(sa.DateTime(timezone=True),
-                        doc='Expires Datetime',
-                        comment='Datetime after which the schedule will no longer '
-                        'trigger the task to run')
-    expire_seconds = sa.Column(sa.Integer,
-                               doc='Expires timedelta with seconds',
-                               comment='Timedelta with seconds which the schedule will no longer '
-                               'trigger the task to run')
+    routing_key = sa.Column(
+        sa.String(255), doc="Routing Key", comment="Override Routing Key for low-level AMQP routing"
+    )
+    headers = sa.Column(
+        sa.Text,
+        default="{}",
+        doc="AMQP Message Headers",
+        comment="JSON encoded message headers for the AMQP message.",
+    )
+    priority = sa.Column(
+        sa.Integer(),
+        doc="Priority",
+        comment="Priority Number between 0 and 255. "
+        "Supported by: RabbitMQ, Redis (priority reversed, 0 is highest).",
+    )
+    expires = sa.Column(
+        sa.DateTime(timezone=True),
+        doc="Expires Datetime",
+        comment="Datetime after which the schedule will no longer " "trigger the task to run",
+    )
+    expire_seconds = sa.Column(
+        sa.Integer,
+        doc="Expires timedelta with seconds",
+        comment="Timedelta with seconds which the schedule will no longer " "trigger the task to run",
+    )
 
-    one_off = sa.Column(sa.Boolean(), default=False, nullable=False,
-                        doc='One-off Task',
-                        comment='If True, the schedule will only run the task a single time')
-    start_time = sa.Column(sa.DateTime(timezone=True),
-                           doc='Start Datetime',
-                           comment='Datetime when the schedule should begin '
-                           'triggering the task to run')
-    enabled = sa.Column(sa.Boolean(), default=True, nullable=False,
-                        doc='Enabled',
-                        comment='Set to False to disable the schedule')
-    last_run_at = sa.Column(sa.DateTime(timezone=True), doc='Last Run Datetime',
-                            comment='Datetime that the schedule last triggered the task to run. ')
-    total_run_count = sa.Column(sa.Integer(), nullable=False, default=0,
-                                doc='Total Run Count',
-                                comment='Running count of how many times the schedule '
-                                'has triggered the task')
+    one_off = sa.Column(
+        sa.Boolean(),
+        default=False,
+        nullable=False,
+        doc="One-off Task",
+        comment="If True, the schedule will only run the task a single time",
+    )
+    start_time = sa.Column(
+        sa.DateTime(timezone=True),
+        doc="Start Datetime",
+        comment="Datetime when the schedule should begin " "triggering the task to run",
+    )
+    enabled = sa.Column(
+        sa.Boolean(), default=True, nullable=False, doc="Enabled", comment="Set to False to disable the schedule"
+    )
+    last_run_at = sa.Column(
+        sa.DateTime(timezone=True),
+        doc="Last Run Datetime",
+        comment="Datetime that the schedule last triggered the task to run. ",
+    )
+    total_run_count = sa.Column(
+        sa.Integer(),
+        nullable=False,
+        default=0,
+        doc="Total Run Count",
+        comment="Running count of how many times the schedule " "has triggered the task",
+    )
 
-    date_changed = sa.Column(sa.DateTime(timezone=True),
-                             default=lambda: maybe_make_aware(dt.datetime.now(dt.UTC)),
-                             onupdate=lambda: maybe_make_aware(dt.datetime.now(dt.UTC)),
-                             doc='Last Modified',
-                             comment='Datetime that this PeriodicTask was last modified')
-    description = sa.Column(sa.Text(), default='', doc='Description',
-                            comment='Detailed description about the details of this Periodic Task')
+    date_changed = sa.Column(
+        sa.DateTime(timezone=True),
+        default=lambda: maybe_make_aware(dt.datetime.now(dt.UTC)),
+        onupdate=lambda: maybe_make_aware(dt.datetime.now(dt.UTC)),
+        doc="Last Modified",
+        comment="Datetime that this PeriodicTask was last modified",
+    )
+    description = sa.Column(
+        sa.Text(), default="", doc="Description", comment="Detailed description about the details of this Periodic Task"
+    )
 
     no_changes = False
 
-    discriminator = sa.Column(sa.String(20), nullable=False, doc='Schedule Name',
-                              comment='Lower case name of the schedule class. ')
+    discriminator = sa.Column(
+        sa.String(20), nullable=False, doc="Schedule Name", comment="Lower case name of the schedule class. "
+    )
     """Refers to the type of parent."""
 
-    schedule_id = sa.Column(sa.Integer(), nullable=False, doc='Schedule ID',
-                            comment='ID of the schedule model object. ')
+    schedule_id = sa.Column(
+        sa.Integer(), nullable=False, doc="Schedule ID", comment="ID of the schedule model object. "
+    )
     """Refers to the primary key of the parent.
 
     This could refer to any table.
     """
+
     @property
     def schedule_model(self):
         """Provides in-Python access to the "parent" by choosing
@@ -227,14 +270,14 @@ class PeriodicTask(ModelBase, ModelMixin):
             self.schedule_id = value.id
             self.discriminator = value.discriminator
             for attribute, _ in self.__dict__.items():
-                if attribute.startswith('model_'):
+                if attribute.startswith("model_"):
                     setattr(self, attribute, None)
             setattr(self, "model_%s" % value.discriminator, value)
         else:
             self.schedule_id = None
             self.discriminator = None
             for attribute, value in self.__dict__.items():
-                if attribute.startswith('model_'):
+                if attribute.startswith("model_"):
                     setattr(self, attribute, None)
 
     @staticmethod
@@ -242,13 +285,13 @@ class PeriodicTask(ModelBase, ModelMixin):
         if target.enabled and isinstance(target.schedule_model, ClockedSchedule) and not target.one_off:
             raise ValueError("one_off must be True for clocked schedule")
         if target.expire_seconds is not None and target.expires:
-            raise ValueError('Only one can be set, in expires and expire_seconds')
+            raise ValueError("Only one can be set, in expires and expire_seconds")
 
     def __repr__(self):
         if self.schedule_model:
-            fmt = '{0.name}: {0.schedule_model}'
+            fmt = "{0.name}: {0.schedule_model}"
         else:
-            fmt = '{0.name}: no schedule'
+            fmt = "{0.name}: no schedule"
         return fmt.format(self)
 
     @property
@@ -259,16 +302,41 @@ class PeriodicTask(ModelBase, ModelMixin):
     def schedule(self):
         if self.schedule_model:
             return self.schedule_model.schedule
-        raise ValueError('{} schedule is None!'.format(self.name))
+        raise ValueError("{} schedule is None!".format(self.name))
 
     def __init__(self, *args: Any, **kwargs: Any) -> None:
         super().__init__(*args, **kwargs)
 
+    def to_proto(self) -> PeriodicTaskScheduleProto:
+        return PeriodicTaskScheduleProto(
+            id=self.id,
+            name=self.name,
+            task=self.task,
+            args=self.args,
+            kwargs=self.kwargs,
+            queue=self.queue,
+            date_changed=self.dt_to_ts(self.date_changed),
+            description=self.description,
+            discriminator=self.discriminator,
+            exchange=self.exchange,
+            expires=self.dt_to_ts(self.expires),
+            expire_seconds=self.expire_seconds,
+            headers=self.headers,
+            last_run_at=self.dt_to_ts(self.last_run_at),
+            one_off=BoolValue(value=self.one_off),
+            priority=self.priority,
+            routing_key=self.routing_key,
+            schedule_id=self.schedule_id,
+            start_time=self.dt_to_ts(self.start_time),
+            total_run_count=self.total_run_count,
+            active=BoolValue(value=self.enabled),
+            external_id=self.external_id,
+            object_audit=super().to_proto(),
+        )
+
 
 class ScheduleModel:
-    """ScheduleModel mixin, inherited by all schedule classes
-
-    """
+    """ScheduleModel mixin, inherited by all schedule classes"""
 
 
 @event.listens_for(ScheduleModel, "mapper_configured", propagate=True)
@@ -288,10 +356,10 @@ def setup_listener(mapper, class_):
                 PeriodicTask.discriminator == discriminator,
             ),
             viewonly=True,
-            lazy='selectin'
+            lazy="selectin",
         ),
-        overlaps='periodic_tasks',
-        cascade="all, delete-orphan"
+        overlaps="periodic_tasks",
+        cascade="all, delete-orphan",
     )
 
     @event.listens_for(class_.periodic_tasks, "append")
@@ -308,11 +376,8 @@ def setup_listener(mapper, class_):
 class IntervalSchedule(ScheduleModel, ModelBase):
 
     __table_args__ = (
-        sa.CheckConstraint(sa.column('every') >= 1),
-        {
-            'sqlite_autoincrement': True,
-            'schema': 'celery_schema'
-        }
+        sa.CheckConstraint(sa.column("every") >= 1),
+        {"sqlite_autoincrement": True, "schema": "celery_schema"},
     )
 
     id = sa.Column(sa.Integer, primary_key=True, autoincrement=True)
@@ -320,21 +385,20 @@ class IntervalSchedule(ScheduleModel, ModelBase):
     every = sa.Column(
         sa.Integer,
         nullable=False,
-        doc='Number of Periods',
-        comment='Number of interval periods to wait before '
-        'running the task again'
+        doc="Number of Periods",
+        comment="Number of interval periods to wait before " "running the task again",
     )
     period = sa.Column(
         sa.Enum(Period, values_callable=lambda obj: [e.value for e in obj]),
         nullable=False,
-        doc='Interval Period',
-        comment='The type of period between task runs (Example: days)'
+        doc="Interval Period",
+        comment="The type of period between task runs (Example: days)",
     )
 
     def __repr__(self):
         if self.every == 1:
-            return 'every {0}'.format(self.period_singular)
-        return 'every {0} {1}'.format(self.every, Period(self.period).value)
+            return "every {0}".format(self.period_singular)
+        return "every {0} {1}".format(self.every, Period(self.period).value)
 
     @property
     def schedule(self):
@@ -346,11 +410,13 @@ class IntervalSchedule(ScheduleModel, ModelBase):
 
     @classmethod
     def from_schedule(cls, session, schedule, period=Period.SECONDS):
+        audit = {"tenant": os.getenv("TENANT"), "updated_by": INTERNAL_USER}
         every = max(schedule.run_every.total_seconds(), 0)
-        model = session.query(IntervalSchedule).filter_by(
-            every=every, period=period).first()
+        model = (
+            session.query(IntervalSchedule).filter_by(every=every, period=period, tenant=audit.get("tenant")).first()
+        )
         if not model:
-            model = cls(every=every, period=period)
+            model = cls(every=every, period=period, **audit)
             session.add(model)
             session.commit()
         return model
@@ -359,6 +425,16 @@ class IntervalSchedule(ScheduleModel, ModelBase):
     def period_singular(self):
         return Period(self.period).value[:-1]
 
+    def to_proto(self) -> IntervalScheduleProto:
+        return IntervalScheduleProto(
+            id=self.id,
+            every=self.every,
+            period=self.period.name,
+            active=BoolValue(value=self.active),
+            external_id=self.external_id,
+            object_audit=super().to_proto(),
+        )
+
 
 class CrontabSchedule(ScheduleModel, ModelBase):
 
@@ -366,67 +442,65 @@ class CrontabSchedule(ScheduleModel, ModelBase):
     minute = sa.Column(
         sa.String(60 * 4),
         nullable=False,
-        default='*',
-        doc='Minute(s)',
-        comment='Cron Minutes to Run. Use "*" for "all". (Example: "0,30")'
+        default="*",
+        doc="Minute(s)",
+        comment='Cron Minutes to Run. Use "*" for "all". (Example: "0,30")',
     )
     hour = sa.Column(
         sa.String(24 * 4),
         nullable=False,
-        default='*',
-        doc='Hour(s)',
-        comment='Cron Hours to Run. Use "*" for "all". (Example: "8,20")'
+        default="*",
+        doc="Hour(s)",
+        comment='Cron Hours to Run. Use "*" for "all". (Example: "8,20")',
     )
     day_of_week = sa.Column(
         sa.String(64),
         nullable=False,
-        default='*',
-        doc='Day(s) Of The Week',
-        comment='Cron Days Of The Week to Run. Use "*" for "all", Sunday '
-        'is 0 or 7, Monday is 1. (Example: "0,5")'
+        default="*",
+        doc="Day(s) Of The Week",
+        comment='Cron Days Of The Week to Run. Use "*" for "all", Sunday ' 'is 0 or 7, Monday is 1. (Example: "0,5")',
     )
     day_of_month = sa.Column(
         sa.String(31 * 4),
         nullable=False,
-        default='*',
-        doc='Day(s) Of The Month',
-        comment='Cron Days Of The Month to Run. Use "*" for "all". '
-        '(Example: "1,15")'
+        default="*",
+        doc="Day(s) Of The Month",
+        comment='Cron Days Of The Month to Run. Use "*" for "all". ' '(Example: "1,15")',
     )
     month_of_year = sa.Column(
         sa.String(64),
         nullable=False,
-        default='*',
-        doc='Month(s) Of The Year',
-        comment='Cron Months (1-12) Of The Year to Run. Use "*" for "all". '
-        '(Example: "1,12")'
+        default="*",
+        doc="Month(s) Of The Year",
+        comment='Cron Months (1-12) Of The Year to Run. Use "*" for "all". ' '(Example: "1,12")',
     )
     timezone = sa.Column(
         sa.String(64),
         nullable=False,
-        default='UTC',
-        doc='Cron Timezone',
-        comment='Timezone to Run the Cron Schedule on. Default is UTC.'
+        default="UTC",
+        doc="Cron Timezone",
+        comment="Timezone to Run the Cron Schedule on. Default is UTC.",
     )
 
     def __repr__(self):
-        return '{0} {1} {2} {3} {4} (m/h/dM/MY/d) {5}'.format(
+        return "{0} {1} {2} {3} {4} (m/h/dM/MY/d) {5}".format(
             self.cronexp(self.minute),
             self.cronexp(self.hour),
             self.cronexp(self.day_of_month),
             self.cronexp(self.month_of_year),
             self.cronexp(self.day_of_week),
-            str(self.timezone or 'UTC')
+            str(self.timezone or "UTC"),
         )
 
     @staticmethod
     def aware_crontab(obj):
         return TzAwareCrontab(
             minute=obj.minute,
-            hour=obj.hour, day_of_week=obj.day_of_week,
+            hour=obj.hour,
+            day_of_week=obj.day_of_week,
             day_of_month=obj.day_of_month,
             month_of_year=obj.month_of_year,
-            tz=ZoneInfo(obj.timezone or 'UTC')
+            tz=ZoneInfo(obj.timezone or "UTC"),
         )
 
     @property
@@ -435,23 +509,23 @@ class CrontabSchedule(ScheduleModel, ModelBase):
 
     @staticmethod
     def cronexp(value):
-        return (value is not None and re.sub(r"[\s\[\]\{\}]", '', str(value))) or '*'
+        return (value is not None and re.sub(r"[\s\[\]\{\}]", "", str(value))) or "*"
 
     @classmethod
     def from_schedule(cls, session, schedule):
         spec = {
-            'minute': cls.cronexp(schedule._orig_minute),
-            'hour': cls.cronexp(schedule._orig_hour),
-            'day_of_week': cls.cronexp(schedule._orig_day_of_week),
-            'day_of_month': cls.cronexp(schedule._orig_day_of_month),
-            'month_of_year': cls.cronexp(schedule._orig_month_of_year),
+            "minute": cls.cronexp(schedule._orig_minute),
+            "hour": cls.cronexp(schedule._orig_hour),
+            "day_of_week": cls.cronexp(schedule._orig_day_of_week),
+            "day_of_month": cls.cronexp(schedule._orig_day_of_month),
+            "month_of_year": cls.cronexp(schedule._orig_month_of_year),
+            "tenant": os.getenv("TENANT"),
         }
         if schedule.tz:
-            spec.update({
-                'timezone': schedule.tz.key
-            })
+            spec.update({"timezone": schedule.tz.key})
         model = session.query(CrontabSchedule).filter_by(**spec).first()
         if not model:
+            spec.update({"updated_by": INTERNAL_USER})
             model = cls(**spec)
             session.add(model)
             session.commit()
@@ -460,28 +534,40 @@ class CrontabSchedule(ScheduleModel, ModelBase):
     @staticmethod
     def before_insert_or_update(mapper, connection, target):
         if not target.timezone:
-            target.timezone = 'UTC'
+            target.timezone = "UTC"
         if target.timezone not in available_timezones():
             raise ValueError(f'Timezone "{target.timezone}"  is not found in available timezones')
         try:
-            for k in ('minute', 'hour', 'day_of_week', 'day_of_month', 'month_of_year'):
+            for k in ("minute", "hour", "day_of_week", "day_of_month", "month_of_year"):
                 setattr(target, k, CrontabSchedule.cronexp(getattr(target, k)))
             # Test the object to make sure it is valid before saving to DB
             CrontabSchedule.aware_crontab(target).remaining_estimate(dt.datetime.now(dt.UTC))
         except Exception as exc:
             raise ValueError(f"Could not parse cron {target}: {str(exc)}") from exc
 
+    def to_proto(self) -> CrontabScheduleProto:
+        return CrontabScheduleProto(
+            id=self.id,
+            day_of_month=self.day_of_month,
+            day_of_week=self.day_of_week,
+            hour=self.hour,
+            minute=self.minute,
+            month_of_year=self.month_of_year,
+            expression=str(self),
+            timezone=self.timezone,
+            active=BoolValue(value=self.active),
+            external_id=self.external_id,
+            object_audit=super().to_proto(),
+        )
+
 
 class SolarSchedule(ScheduleModel, ModelBase):
 
     __table_args__ = (
-        sa.UniqueConstraint('event', 'latitude', 'longitude'),
-        sa.CheckConstraint(sa.column('latitude').between(-90, 90)),
-        sa.CheckConstraint(sa.column('longitude').between(-180, 180)),
-        {
-            'sqlite_autoincrement': True,
-            'schema': 'celery_schema'
-        }
+        sa.UniqueConstraint("event", "latitude", "longitude"),
+        sa.CheckConstraint(sa.column("latitude").between(-90, 90)),
+        sa.CheckConstraint(sa.column("longitude").between(-180, 180)),
+        {"sqlite_autoincrement": True, "schema": "celery_schema"},
     )
 
     id = sa.Column(sa.Integer, primary_key=True, autoincrement=True)
@@ -489,50 +575,56 @@ class SolarSchedule(ScheduleModel, ModelBase):
     event = sa.Column(
         sa.Enum(SolarEvent, values_callable=lambda obj: [e.value for e in obj]),
         nullable=False,
-        doc='Solar Event',
-        comment='The type of solar event when the job should run'
+        doc="Solar Event",
+        comment="The type of solar event when the job should run",
     )
     latitude = sa.Column(
         sa.Numeric(precision=9, scale=6, decimal_return_scale=6, asdecimal=False),
         nullable=False,
-        doc='Latitude',
-        comment='Run the task when the event happens at this latitude'
+        doc="Latitude",
+        comment="Run the task when the event happens at this latitude",
     )
     longitude = sa.Column(
         sa.Numeric(precision=9, scale=6, decimal_return_scale=6, asdecimal=False),
         nullable=False,
-        doc='Longitude',
-        comment='Run the task when the event happens at this longitude'
+        doc="Longitude",
+        comment="Run the task when the event happens at this longitude",
     )
 
     @property
     def schedule(self):
         return schedules.solar(
-            self.event,
-            self.latitude,
-            self.longitude,
-            nowfun=lambda: maybe_make_aware(dt.datetime.now(dt.UTC))
+            self.event, self.latitude, self.longitude, nowfun=lambda: maybe_make_aware(dt.datetime.now(dt.UTC))
         )
 
     @classmethod
     def from_schedule(cls, session, schedule):
         spec = {
-            'event': schedule.event,
-            'latitude': schedule.lat,
-            'longitude': schedule.lon
+            "event": schedule.event,
+            "latitude": schedule.lat,
+            "longitude": schedule.lon,
+            "tenant": os.getenv("TENANT"),
         }
         model = session.query(SolarSchedule).filter_by(**spec).first()
         if not model:
+            spec.update({"updated_by": INTERNAL_USER})
             model = cls(**spec)
             session.add(model)
             session.commit()
         return model
 
     def __repr__(self):
-        return '{0} ({1}, {2})'.format(
-            self.event.replace('_', ' '),
-            self.latitude,
-            self.longitude
+        return "{0} ({1}, {2})".format(self.event.replace("_", " "), self.latitude, self.longitude)
+
+    def to_proto(self) -> SolarScheduleProto:
+        return SolarScheduleProto(
+            id=self.id,
+            event=self.event.name,
+            latitude=FloatValue(value=self.latitude),
+            longitude=FloatValue(value=self.longitude),
+            external_id=self.external_id,
+            active=BoolValue(value=self.active),
+            object_audit=super().to_proto(),
         )
 
 
@@ -542,7 +634,7 @@ class ClockedSchedule(ScheduleModel, ModelBase):
     clocked_time = sa.Column(sa.DateTime(timezone=True))
 
     def __repr__(self):
-        return f'{self.clocked_time}'
+        return f"{self.clocked_time}"
 
     @property
     def schedule(self):
@@ -551,16 +643,17 @@ class ClockedSchedule(ScheduleModel, ModelBase):
 
     @classmethod
     def from_schedule(cls, session, schedule):
-        spec = {'clocked_time': schedule.clocked_time}
+        spec = {"clocked_time": schedule.clocked_time, "tenant": os.getenv("TENANT")}
         model = session.query(ClockedSchedule).filter_by(**spec).first()
         if not model:
+            spec.update({"updated_by": INTERNAL_USER})
             model = cls(**spec)
             session.add(model)
             session.commit()
         return model
 
     def strip_ms(self):
-        """ Convenience function to remove microseconds,
+        """Convenience function to remove microseconds,
         this should help reduce number of clockedschedules in DB
         if you have too many.
         ex:
@@ -572,6 +665,15 @@ class ClockedSchedule(ScheduleModel, ModelBase):
         """
         self.clocked_time = self.clocked_time.replace(microsecond=0)
 
+    def to_proto(self) -> ClockedScheduleProto:
+        return ClockedScheduleProto(
+            id=self.id,
+            clocked_time=self.dt_to_ts(self.clocked_time),
+            active=BoolValue(value=self.active),
+            external_id=self.external_id,
+            object_audit=super().to_proto(),
+        )
+
 
 def instant_defaults_listener(target, args, kwargs):
     # insertion order of kwargs matters
@@ -580,10 +682,7 @@ def instant_defaults_listener(target, args, kwargs):
     kwargs.clear()
 
     for key, column in sa.inspect(target.__class__).columns.items():
-        if (
-            hasattr(column, 'default') and
-            column.default is not None
-        ):
+        if hasattr(column, "default") and column.default is not None:
             if callable(column.default.arg):
                 kwargs[key] = column.default.arg(target)
             else:
@@ -593,14 +692,14 @@ def instant_defaults_listener(target, args, kwargs):
     kwargs.update(original)
 
 
-event.listen(CrontabSchedule, 'init', instant_defaults_listener)
-event.listen(PeriodicTask, 'init', instant_defaults_listener)
-event.listen(PeriodicTask, 'after_insert', PeriodicTaskChanged.update_changed)
-event.listen(PeriodicTask, 'after_delete', PeriodicTaskChanged.update_changed)
-event.listen(PeriodicTask, 'after_update', PeriodicTaskChanged.changed)
-event.listen(PeriodicTask, 'before_insert', PeriodicTask.before_insert_or_update)
-event.listen(PeriodicTask, 'before_update', PeriodicTask.before_insert_or_update)
-event.listen(ScheduleModel, 'after_delete', PeriodicTaskChanged.update_changed, propagate=True)
-event.listen(ScheduleModel, 'after_update', PeriodicTaskChanged.update_changed, propagate=True)
-event.listen(CrontabSchedule, 'before_insert', CrontabSchedule.before_insert_or_update)
-event.listen(CrontabSchedule, 'before_update', CrontabSchedule.before_insert_or_update)
+event.listen(CrontabSchedule, "init", instant_defaults_listener)
+event.listen(PeriodicTask, "init", instant_defaults_listener)
+event.listen(PeriodicTask, "after_insert", PeriodicTaskChanged.update_changed)
+event.listen(PeriodicTask, "after_delete", PeriodicTaskChanged.update_changed)
+event.listen(PeriodicTask, "after_update", PeriodicTaskChanged.changed)
+event.listen(PeriodicTask, "before_insert", PeriodicTask.before_insert_or_update)
+event.listen(PeriodicTask, "before_update", PeriodicTask.before_insert_or_update)
+event.listen(ScheduleModel, "after_delete", PeriodicTaskChanged.update_changed, propagate=True)
+event.listen(ScheduleModel, "after_update", PeriodicTaskChanged.update_changed, propagate=True)
+event.listen(CrontabSchedule, "before_insert", CrontabSchedule.before_insert_or_update)
+event.listen(CrontabSchedule, "before_update", CrontabSchedule.before_insert_or_update)
