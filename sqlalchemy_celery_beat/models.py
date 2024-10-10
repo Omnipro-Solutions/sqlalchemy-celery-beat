@@ -2,11 +2,16 @@
 # The generic foreign key is implemented after this example:
 # https://docs.sqlalchemy.org/en/20/_modules/examples/generic_associations/generic_fk.html
 import datetime as dt
+import enum
 import os
 import re
 from typing import Any
-from zoneinfo import ZoneInfo
+from zoneinfo import ZoneInfo, available_timezones
 
+import sqlalchemy as sa
+from celery import schedules
+from celery.utils.log import get_logger
+from celery.utils.time import make_aware, maybe_make_aware
 from google.protobuf.wrappers_pb2 import BoolValue, FloatValue
 from omni.pro.user.access import INTERNAL_USER
 from omni_pro_grpc.v1.tasks.clocked_pb2 import Clocked as ClockedScheduleProto
@@ -14,18 +19,6 @@ from omni_pro_grpc.v1.tasks.crontab_pb2 import Crontab as CrontabScheduleProto
 from omni_pro_grpc.v1.tasks.interval_pb2 import Interval as IntervalScheduleProto
 from omni_pro_grpc.v1.tasks.periodic_task_pb2 import PeriodicTask as PeriodicTaskScheduleProto
 from omni_pro_grpc.v1.tasks.solar_pb2 import Solar as SolarScheduleProto
-
-try:
-    from zoneinfo import available_timezones
-except ImportError:
-    from backports.zoneinfo import available_timezones
-
-import enum
-
-import sqlalchemy as sa
-from celery import schedules
-from celery.utils.log import get_logger
-from celery.utils.time import make_aware, maybe_make_aware
 from sqlalchemy import event
 from sqlalchemy.future import Connection
 from sqlalchemy.orm import Session, backref, foreign, relationship, remote, validates
