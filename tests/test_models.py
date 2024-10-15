@@ -1,18 +1,11 @@
 import datetime
 import os
-
-try:
-    from zoneinfo import ZoneInfo, available_timezones
-except ImportError:
-    from backports.zoneinfo import available_timezones, ZoneInfo
+from zoneinfo import ZoneInfo, available_timezones
 
 import pytest
 from celery import schedules
 from celery.utils.time import make_aware
-
-from sqlalchemy_celery_beat.models import (ClockedSchedule, CrontabSchedule,
-                                           IntervalSchedule, Period,
-                                           SolarEvent)
+from sqlalchemy_celery_beat.models import ClockedSchedule, CrontabSchedule, IntervalSchedule, Period, SolarEvent
 from sqlalchemy_celery_beat.session import SessionManager, session_cleanup
 
 
@@ -20,8 +13,10 @@ class TestMixin:
 
     @pytest.fixture(autouse=True)
     def setup_scheduler(self, app):
+        os.environ["TENANT"] = "test"
+        self.audit_dict = {"tenant": "test", "updated_by": "test"}
         self.app = app
-        self.app.conf.beat_dburi = 'sqlite:///tests/testing.db'
+        self.app.conf.beat_dburi = "sqlite:///tests/testing.db"
         Session = SessionManager()
         self.session = Session.session_factory(self.app.conf.beat_dburi)
 
@@ -58,7 +53,7 @@ class test_CrontabScheduleTestCase(TestDuplicatesMixin, TestMixin):
             "day_of_month": "*",
             "month_of_year": "*",
             "day_of_week": "*",
-        }
+        } | self.audit_dict
         schedule = schedules.crontab(hour="4")
         self._test_duplicate_schedules(CrontabSchedule, self.session, kwargs, schedule)
 
@@ -86,7 +81,7 @@ class test_SolarScheduleTestCase:
 class test_IntervalScheduleTestCase(TestDuplicatesMixin, TestMixin):
 
     def test_duplicate_schedules(self):
-        kwargs = {'every': 1, 'period': Period.SECONDS}
+        kwargs = {"every": 1, "period": Period.SECONDS} | self.audit_dict
         schedule = schedules.schedule(run_every=1.0)
         self._test_duplicate_schedules(IntervalSchedule, self.session, kwargs, schedule)
 
@@ -96,11 +91,11 @@ class test_ClockedScheduleTestCase(TestDuplicatesMixin, TestMixin):
     @pytest.fixture(autouse=False)
     def set_timezone(self, app):
         self.app = app
-        self.app.conf.timezone = 'Africa/Cairo'
+        self.app.conf.timezone = "Africa/Cairo"
 
     def test_duplicate_schedules(self):
-        now = make_aware(datetime.datetime.now(datetime.UTC), ZoneInfo('UTC'))
-        kwargs = {'clocked_time': now}
+        now = make_aware(datetime.datetime.now(datetime.UTC), ZoneInfo("UTC"))
+        kwargs = {"clocked_time": now} | self.audit_dict
         self._test_duplicate_schedules(ClockedSchedule, self.session, kwargs)
 
     # IMPORTANT: we must have a valid timezone (not UTC) for accurate testing
@@ -110,7 +105,7 @@ class test_ClockedScheduleTestCase(TestDuplicatesMixin, TestMixin):
         with session_cleanup(self.session):
             schedule = self.session.query(ClockedSchedule).filter_by(clocked_time=tz_info).first()
             if not schedule:
-                schedule = ClockedSchedule(clocked_time=tz_info)
+                schedule = ClockedSchedule(clocked_time=tz_info, **self.audit_dict)
                 self.session.add(schedule)
                 self.session.commit()
             # testnig str(schedule) calls make_aware() internally
