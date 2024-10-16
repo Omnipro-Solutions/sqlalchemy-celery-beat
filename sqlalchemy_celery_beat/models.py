@@ -70,7 +70,7 @@ class PeriodicTaskChanged(ModelBase, ModelMixin):
 
     id = sa.Column(sa.Integer, primary_key=True)
     last_update = sa.Column(
-        sa.DateTime(timezone=True), nullable=False, default=lambda: maybe_make_aware(dt.datetime.now(dt.UTC))
+        sa.DateTime(timezone=True), nullable=False, default=lambda: maybe_make_aware(dt.datetime.utcnow())
     )
 
     @classmethod
@@ -98,14 +98,14 @@ class PeriodicTaskChanged(ModelBase, ModelMixin):
             updated_by = target.updated_by
             s = connection.execute(
                 insert(PeriodicTaskChanged).values(
-                    id=1, last_update=maybe_make_aware(dt.datetime.now(dt.UTC)), tenant=tenant, updated_by=updated_by
+                    id=1, last_update=maybe_make_aware(dt.datetime.utcnow()), tenant=tenant, updated_by=updated_by
                 )
             )
         else:
             s = connection.execute(
                 update(PeriodicTaskChanged)
                 .where(PeriodicTaskChanged.id == 1)
-                .values(last_update=maybe_make_aware(dt.datetime.now(dt.UTC)))
+                .values(last_update=maybe_make_aware(dt.datetime.utcnow()))
             )
 
     @classmethod
@@ -223,8 +223,8 @@ class PeriodicTask(ModelBase, ModelMixin):
 
     date_changed = sa.Column(
         sa.DateTime(timezone=True),
-        default=lambda: maybe_make_aware(dt.datetime.now(dt.UTC)),
-        onupdate=lambda: maybe_make_aware(dt.datetime.now(dt.UTC)),
+        default=lambda: maybe_make_aware(dt.datetime.utcnow()),
+        onupdate=lambda: maybe_make_aware(dt.datetime.utcnow()),
         doc="Last Modified",
         comment="Datetime that this PeriodicTask was last modified",
     )
@@ -534,7 +534,7 @@ class CrontabSchedule(ScheduleModel, ModelBase):
             for k in ("minute", "hour", "day_of_week", "day_of_month", "month_of_year"):
                 setattr(target, k, CrontabSchedule.cronexp(getattr(target, k)))
             # Test the object to make sure it is valid before saving to DB
-            CrontabSchedule.aware_crontab(target).remaining_estimate(dt.datetime.now(dt.UTC))
+            CrontabSchedule.aware_crontab(target).remaining_estimate(dt.datetime.utcnow())
         except Exception as exc:
             raise ValueError(f"Could not parse cron {target}: {str(exc)}") from exc
 
@@ -587,7 +587,7 @@ class SolarSchedule(ScheduleModel, ModelBase):
     @property
     def schedule(self):
         return schedules.solar(
-            self.event, self.latitude, self.longitude, nowfun=lambda: maybe_make_aware(dt.datetime.now(dt.UTC))
+            self.event, self.latitude, self.longitude, nowfun=lambda: maybe_make_aware(dt.datetime.utcnow())
         )
 
     @classmethod
