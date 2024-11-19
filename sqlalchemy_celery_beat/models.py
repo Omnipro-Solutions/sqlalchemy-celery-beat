@@ -133,6 +133,8 @@ class PeriodicTask(ModelBase, ModelMixin):
         {"sqlite_autoincrement": True, "schema": "celery_schema"},
     )
 
+    __verbose_name__ = "periodic_tasks"
+
     id = sa.Column(sa.Integer, primary_key=True, autoincrement=True)
     # name
     name = sa.Column(sa.String(255), unique=True, nullable=False, doc="Name", comment="Short Description For This Task")
@@ -373,6 +375,8 @@ class IntervalSchedule(ScheduleModel, ModelBase):
         {"sqlite_autoincrement": True, "schema": "celery_schema"},
     )
 
+    __verbose_name__ = "intervals"
+
     id = sa.Column(sa.Integer, primary_key=True, autoincrement=True)
 
     every = sa.Column(
@@ -430,6 +434,8 @@ class IntervalSchedule(ScheduleModel, ModelBase):
 
 
 class CrontabSchedule(ScheduleModel, ModelBase):
+
+    __verbose_name__ = "crontabs"
 
     id = sa.Column(sa.Integer, primary_key=True, autoincrement=True)
     minute = sa.Column(
@@ -563,6 +569,8 @@ class SolarSchedule(ScheduleModel, ModelBase):
         {"sqlite_autoincrement": True, "schema": "celery_schema"},
     )
 
+    __verbose_name__ = "solars"
+
     id = sa.Column(sa.Integer, primary_key=True, autoincrement=True)
 
     event = sa.Column(
@@ -622,6 +630,8 @@ class SolarSchedule(ScheduleModel, ModelBase):
 
 
 class ClockedSchedule(ScheduleModel, ModelBase):
+
+    __verbose_name__ = "clockeds"
 
     id = sa.Column(sa.Integer, primary_key=True, autoincrement=True)
     clocked_time = sa.Column(sa.DateTime(timezone=True))
