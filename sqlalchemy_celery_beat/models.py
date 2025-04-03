@@ -303,6 +303,11 @@ class PeriodicTask(ModelBase, ModelMixin):
         super().__init__(*args, **kwargs)
 
     def to_proto(self) -> PeriodicTaskScheduleProto:
+        schedule_object = {
+            "id": self.schedule_id,
+            "name": f"{self.schedule_model.__class__.__verbose_name__}_{self.schedule_id}",
+        }
+
         return PeriodicTaskScheduleProto(
             id=self.id,
             name=self.name,
@@ -321,7 +326,7 @@ class PeriodicTask(ModelBase, ModelMixin):
             one_off=BoolValue(value=self.one_off),
             priority=self.priority,
             routing_key=self.routing_key,
-            schedule_id=self.schedule_id,
+            schedule=schedule_object,
             start_time=self.dt_to_ts(self.start_time),
             total_run_count=self.total_run_count,
             active=BoolValue(value=self.enabled),
