@@ -302,7 +302,22 @@ class PeriodicTask(ModelBase, ModelMixin):
     def __init__(self, *args: Any, **kwargs: Any) -> None:
         super().__init__(*args, **kwargs)
 
+    def format_name(self):
+        if self.discriminator == "intervalschedule":
+            return f"Every {self.schedule_model.every} - Period {self.schedule_model.period}"
+        if self.discriminator == "crontabschedule":
+            return self.schedule_model.to_proto().expression
+        if self.discriminator == "solarschedule":
+            return f"{self.schedule_model.event} ({self.schedule_model.latitude}, {self.schedule_model.longitude})"
+        if self.discriminator == "clockedschedule":
+            return str(self.schedule_model)
+
     def to_proto(self) -> PeriodicTaskScheduleProto:
+        schedule_object = {
+            "id": self.schedule_id,
+            "name": self.format_name(),
+        }
+
         return PeriodicTaskScheduleProto(
             id=self.id,
             name=self.name,
