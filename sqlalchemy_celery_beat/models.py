@@ -336,7 +336,7 @@ class PeriodicTask(ModelBase, ModelMixin):
             one_off=BoolValue(value=self.one_off),
             priority=self.priority,
             routing_key=self.routing_key,
-            schedule_id=self.schedule_id,
+            schedule_id=schedule_object,
             start_time=self.dt_to_ts(self.start_time),
             total_run_count=self.total_run_count,
             active=BoolValue(value=self.enabled),
