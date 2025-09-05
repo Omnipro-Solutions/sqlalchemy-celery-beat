@@ -13,7 +13,11 @@ schedstate = namedtuple("schedstate", ("is_due", "next"))
 
 
 class TzAwareCrontab(schedules.crontab):
-    """Timezone Aware Crontab."""
+    """
+    Timezone Aware Crontab.
+    Overwrites Celery's crontab to include timezone support.
+    See: https://docs.celeryq.dev/en/stable/userguide/periodic-tasks.html#crontab-schedules
+    """
 
     def __init__(
         self, minute="*", hour="*", day_of_week="*", day_of_month="*", month_of_year="*", tz=ZoneInfo("UTC"), app=None
@@ -35,6 +39,7 @@ class TzAwareCrontab(schedules.crontab):
         )
 
     def nowfunc(self):
+        """Return current time in the schedule timezone."""
         return normalize(self.tz, localize(ZoneInfo("UTC"), dt.datetime.utcnow()))
 
     def is_due(self, last_run_at):

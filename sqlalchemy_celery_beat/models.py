@@ -5,13 +5,13 @@ import datetime as dt
 import enum
 import os
 import re
+import sqlalchemy as sa
+
 from typing import Any
 from zoneinfo import ZoneInfo, available_timezones
-
-import sqlalchemy as sa
 from celery import schedules
 from celery.utils.log import get_logger
-from celery.utils.time import make_aware, maybe_make_aware
+from celery.utils.time import maybe_make_aware
 from google.protobuf.wrappers_pb2 import BoolValue, FloatValue
 from omni.pro.user.access import INTERNAL_USER
 from omni_pro_grpc.v1.tasks.clocked_pb2 import Clocked as ClockedScheduleProto
@@ -21,9 +21,8 @@ from omni_pro_grpc.v1.tasks.periodic_task_pb2 import PeriodicTask as PeriodicTas
 from omni_pro_grpc.v1.tasks.solar_pb2 import Solar as SolarScheduleProto
 from sqlalchemy import event
 from sqlalchemy.future import Connection
-from sqlalchemy.orm import Session, backref, foreign, relationship, remote, validates
+from sqlalchemy.orm import Session, backref, foreign, relationship, remote
 from sqlalchemy.sql import insert, select, update
-
 from .clockedschedule import clocked
 from .session import ModelBase
 from .tzcrontab import TzAwareCrontab
@@ -32,18 +31,26 @@ logger = get_logger("sqlalchemy_celery_beat.models")
 
 
 class ModelMixin(object):
+    """Mixin that adds convenience methods for models."""
 
     @classmethod
     def create_mixin(cls, **kw):
+        """
+        Create a new instance of the model with the given keyword arguments.
+        """
         return cls(**kw)
 
     def update_mixin(self, **kw):
+        """
+        Update the model instance with the given keyword arguments.
+        """
         for attr, value in kw.items():
             setattr(self, attr, value)
         return self
 
 
 class Period(str, enum.Enum):
+    """An enumeration of possible periods for the IntervalSchedule."""
     DAYS = "days"
     HOURS = "hours"
     MINUTES = "minutes"
@@ -52,6 +59,7 @@ class Period(str, enum.Enum):
 
 
 class SolarEvent(str, enum.Enum):
+    """An enumeration of possible solar events for the SolarSchedule."""
     DAWN_ASTRONOMICAL = "dawn_astronomical"
     DAWN_NAUTICAL = "dawn_nautical"
     DAWN_CIVIL = "dawn_civil"
@@ -121,12 +129,41 @@ class PeriodicTaskChanged(ModelBase, ModelMixin):
 
     @classmethod
     def last_change(cls, session: Session):
+        """
+        Get the last change timestamp for periodic tasks.
+        """
         periodic_tasks = session.query(PeriodicTaskChanged).get(1)
         if periodic_tasks:
             return periodic_tasks.last_update
 
 
 class PeriodicTask(ModelBase, ModelMixin):
+    """
+    Model for periodic tasks.
+    A periodic task is a task that runs on a schedule.
+    It can be scheduled to run at specific intervals, cron schedules, solar events, or at specific clocked times.
+    It can also be a one-off task that runs only once.
+    It can also be enabled or disabled.
+
+    Attributes:
+        - id (int): The unique identifier for the periodic task.
+        - name (str): The name of the periodic task.
+        - task (str): The name of the Celery task to be executed.
+        - args (list): The positional arguments to pass to the task.
+        - kwargs (dict): The keyword arguments to pass to the task.
+        - queue (str): The name of the queue to send the task to.
+        - exchange (str): The name of the exchange to use for the task.
+        - routing_key (str): The routing key to use for the task.
+        - headers (dict): The headers to include in the task message.
+        - priority (int): The priority of the task.
+        - expires (datetime): The expiration time for the task.
+        - expire_seconds (int): The expiration time for the task in seconds.
+        - one_off (bool): Whether the task is a one-off task.
+        - start_time (datetime): The start time for the task.
+        - enabled (bool): Whether the task is enabled.
+        - last_run_at (datetime): The last time the task was run.
+        - total_run_count (int): The total number of times the task has been run.
+    """
 
     __table_args__ = (
         sa.CheckConstraint(sa.column("priority").between(0, 255)),
@@ -261,6 +298,9 @@ class PeriodicTask(ModelBase, ModelMixin):
 
     @schedule_model.setter
     def schedule_model(self, value):
+        """
+        Set the schedule model for the periodic task.
+        """
         if value is not None:
             self.schedule_id = value.id
             self.discriminator = value.discriminator
@@ -277,12 +317,18 @@ class PeriodicTask(ModelBase, ModelMixin):
 
     @staticmethod
     def before_insert_or_update(mapper, connection, target):
+        """
+        Validate the periodic task before inserting or updating.
+        """
         if target.enabled and isinstance(target.schedule_model, ClockedSchedule) and not target.one_off:
             raise ValueError("one_off must be True for clocked schedule")
         if target.expire_seconds is not None and target.expires:
             raise ValueError("Only one can be set, in expires and expire_seconds")
 
     def __repr__(self):
+        """
+        Return a string representation of the periodic task.
+        """
         if self.schedule_model:
             fmt = "{0.name}: {0.schedule_model}"
         else:
@@ -291,10 +337,16 @@ class PeriodicTask(ModelBase, ModelMixin):
 
     @property
     def expires_(self):
+        """
+        Get the expiration time for the periodic task.
+        """
         return self.expires or self.expire_seconds
 
     @property
     def schedule(self):
+        """
+        Get the schedule for the periodic task.
+        """
         if self.schedule_model:
             return self.schedule_model.schedule
         raise ValueError("{} schedule is None!".format(self.name))
@@ -302,7 +354,30 @@ class PeriodicTask(ModelBase, ModelMixin):
     def __init__(self, *args: Any, **kwargs: Any) -> None:
         super().__init__(*args, **kwargs)
 
+    def format_name(self):
+        """
+        Format the name of the periodic task based on its schedule type.
+        """
+        if self.discriminator == "intervalschedule":
+            return f"Every {self.schedule_model.every} - Period {self.schedule_model.period}"
+        if self.discriminator == "crontabschedule":
+            return self.schedule_model.to_proto().expression
+        if self.discriminator == "solarschedule":
+            return f"{self.schedule_model.event} ({self.schedule_model.latitude}, {self.schedule_model.longitude})"
+        if self.discriminator == "clockedschedule":
+            return str(self.schedule_model)
+
     def to_proto(self) -> PeriodicTaskScheduleProto:
+        """
+        Convert the periodic task to a protobuf message.
+        Returns:
+            PeriodicTaskScheduleProto: The protobuf message representing the periodic task.
+        """
+        schedule_object = {
+            "id": self.schedule_id,
+            "name": self.format_name(),
+        }
+
         return PeriodicTaskScheduleProto(
             id=self.id,
             name=self.name,
@@ -321,7 +396,7 @@ class PeriodicTask(ModelBase, ModelMixin):
             one_off=BoolValue(value=self.one_off),
             priority=self.priority,
             routing_key=self.routing_key,
-            schedule_id=self.schedule_id,
+            schedule_id=schedule_object,
             start_time=self.dt_to_ts(self.start_time),
             total_run_count=self.total_run_count,
             active=BoolValue(value=self.enabled),
@@ -336,6 +411,16 @@ class ScheduleModel:
 
 @event.listens_for(ScheduleModel, "mapper_configured", propagate=True)
 def setup_listener(mapper, class_):
+    """
+    Sets up the relationship from ScheduleModel subclasses to PeriodicTask.
+    This function is called when a ScheduleModel subclass is mapped.
+        1. It creates a relationship from the ScheduleModel subclass to PeriodicTask.
+        2. It sets up an event listener to automatically set the discriminator
+        when a PeriodicTask is appended to the relationship.
+        3. It adds a property to get the discriminator value.
+        4. It adds a discriminator attribute to the ScheduleModel subclass.
+        5. The discriminator is the lowercased name of the ScheduleModel subclass.
+    """
     name = class_.__name__
     discriminator = name.lower()
     class_.periodic_tasks = relationship(
@@ -359,16 +444,30 @@ def setup_listener(mapper, class_):
 
     @event.listens_for(class_.periodic_tasks, "append")
     def append_periodic_tasks(target, value, initiator):
+        """
+        Automatically sets the discriminator when a PeriodicTask is appended to the relationship.
+        """
         value.discriminator = discriminator
 
     @property
     def get_discriminator(self):
+        """
+        Returns the discriminator value for the ScheduleModel subclass.
+        """
         return self.__class__.__name__.lower()
 
     class_.discriminator = get_discriminator
 
 
 class IntervalSchedule(ScheduleModel, ModelBase):
+    """
+    IntervalSchedule model for periodic tasks with a fixed interval.
+    An interval schedule runs a task at regular intervals, defined by a number of periods.
+    Attributes:
+        - id (int): The unique identifier for the interval schedule.
+        - every (int): The number of periods between task runs.
+        - period (Period): The type of period between task runs (e.g., days, hours, minutes).
+    """
 
     __table_args__ = (
         sa.CheckConstraint(sa.column("every") >= 1),
@@ -393,12 +492,18 @@ class IntervalSchedule(ScheduleModel, ModelBase):
     )
 
     def __repr__(self):
+        """
+        Return a string representation of the interval schedule.
+        """
         if self.every == 1:
             return "every {0}".format(self.period_singular)
         return "every {0} {1}".format(self.every, Period(self.period).value)
 
     @property
     def schedule(self):
+        """
+        Get the schedule for the interval schedule.
+        """
         return schedules.schedule(
             dt.timedelta(**{self.period: self.every}),
             # nowfun=lambda: make_aware(now())
@@ -407,6 +512,15 @@ class IntervalSchedule(ScheduleModel, ModelBase):
 
     @classmethod
     def from_schedule(cls, session, schedule, period=Period.SECONDS):
+        """
+        Create or get an IntervalSchedule from a Celery schedule.
+        Args:
+            session (Session): The SQLAlchemy session to use.
+            schedule (schedules.schedule): The Celery schedule to convert.
+            period (Period): The period type for the interval schedule. Defaults to Period.SECONDS.
+        Returns:
+            IntervalSchedule: The created or retrieved IntervalSchedule instance.
+        """
         audit = {"tenant": os.getenv("TENANT"), "updated_by": INTERNAL_USER}
         every = max(schedule.run_every.total_seconds(), 0)
         model = (
@@ -420,9 +534,15 @@ class IntervalSchedule(ScheduleModel, ModelBase):
 
     @property
     def period_singular(self):
+        """
+        Get the singular form of the period.
+        """
         return Period(self.period).value[:-1]
 
     def to_proto(self) -> IntervalScheduleProto:
+        """
+        Convert the IntervalSchedule instance to a Protocol Buffers message.
+        """
         return IntervalScheduleProto(
             id=self.id,
             every=self.every,
@@ -434,6 +554,18 @@ class IntervalSchedule(ScheduleModel, ModelBase):
 
 
 class CrontabSchedule(ScheduleModel, ModelBase):
+    """
+    CrontabSchedule model for periodic tasks with a cron schedule.
+    A crontab schedule runs a task at specific times, defined by a cron expression.
+    Attributes:
+        - id (int): The unique identifier for the crontab schedule.
+        - minute (str): The minute(s) when the task should run.
+        - hour (str): The hour(s) when the task should run.
+        - day_of_week (str): The day(s) of the week when the task should run.
+        - day_of_month (str): The day(s) of the month when the task should run.
+        - month_of_year (str): The month(s) of the year when the task should run.
+        - timezone (str): The timezone in which the task should run.
+    """
 
     __verbose_name__ = "crontabs"
 
@@ -482,6 +614,9 @@ class CrontabSchedule(ScheduleModel, ModelBase):
     )
 
     def __repr__(self):
+        """
+        Get a string representation of the crontab schedule.
+        """
         return "{0} {1} {2} {3} {4} (m/h/dM/MY/d) {5}".format(
             self.cronexp(self.minute),
             self.cronexp(self.hour),
@@ -493,6 +628,9 @@ class CrontabSchedule(ScheduleModel, ModelBase):
 
     @staticmethod
     def aware_crontab(obj):
+        """
+        Create a timezone-aware crontab schedule.
+        """ 
         return TzAwareCrontab(
             minute=obj.minute,
             hour=obj.hour,
@@ -504,14 +642,28 @@ class CrontabSchedule(ScheduleModel, ModelBase):
 
     @property
     def schedule(self):
+        """
+        Get the schedule for the crontab schedule.
+        """
         return self.aware_crontab(self)
 
     @staticmethod
     def cronexp(value):
+        """
+        Clean up a cron expression value by removing whitespace and brackets.
+        """
         return (value is not None and re.sub(r"[\s\[\]\{\}]", "", str(value))) or "*"
 
     @classmethod
     def from_schedule(cls, session, schedule):
+        """
+        Create or get a CrontabSchedule from a Celery schedule.
+        Args:
+            session (Session): The SQLAlchemy session to use.
+            schedule (schedules.crontab): The Celery schedule to convert.
+        Returns:
+            CrontabSchedule: The created or retrieved CrontabSchedule instance.
+        """
         spec = {
             "minute": cls.cronexp(schedule._orig_minute),
             "hour": cls.cronexp(schedule._orig_hour),
@@ -532,6 +684,9 @@ class CrontabSchedule(ScheduleModel, ModelBase):
 
     @staticmethod
     def before_insert_or_update(mapper, connection, target):
+        """
+        Validate the crontab schedule before inserting or updating.
+        """
         if not target.timezone:
             target.timezone = "UTC"
         if target.timezone not in available_timezones():
@@ -545,6 +700,9 @@ class CrontabSchedule(ScheduleModel, ModelBase):
             raise ValueError(f"Could not parse cron {target}: {str(exc)}") from exc
 
     def to_proto(self) -> CrontabScheduleProto:
+        """
+        Convert the CrontabSchedule instance to a Protocol Buffers message.
+        """
         return CrontabScheduleProto(
             id=self.id,
             day_of_month=self.day_of_month,
@@ -561,6 +719,16 @@ class CrontabSchedule(ScheduleModel, ModelBase):
 
 
 class SolarSchedule(ScheduleModel, ModelBase):
+    """
+    SolarSchedule model for periodic tasks based on solar events.
+    A solar schedule runs a task at specific solar events (e.g., sunrise, sunset)
+    at a given latitude and longitude.
+    Attributes:
+        - id (int): The unique identifier for the solar schedule.
+        - event (SolarEvent): The solar event when the task should run.
+        - latitude (float): The latitude where the solar event occurs.
+        - longitude (float): The longitude where the solar event occurs.
+    """
 
     __table_args__ = (
         sa.UniqueConstraint("event", "latitude", "longitude"),
@@ -594,12 +762,23 @@ class SolarSchedule(ScheduleModel, ModelBase):
 
     @property
     def schedule(self):
+        """
+        Get the schedule for the solar schedule.
+        """
         return schedules.solar(
             self.event, self.latitude, self.longitude, nowfun=lambda: maybe_make_aware(dt.datetime.utcnow())
         )
 
     @classmethod
     def from_schedule(cls, session, schedule):
+        """
+        Create or get a SolarSchedule from a Celery schedule.
+        Args:
+            session (Session): The SQLAlchemy session to use.
+            schedule (schedules.solar): The Celery schedule to convert.
+        Returns:
+            SolarSchedule: The created or retrieved SolarSchedule instance.
+        """
         spec = {
             "event": schedule.event,
             "latitude": schedule.lat,
@@ -615,9 +794,15 @@ class SolarSchedule(ScheduleModel, ModelBase):
         return model
 
     def __repr__(self):
+        """
+        Return a string representation of the SolarSchedule instance.
+        """
         return "{0} ({1}, {2})".format(self.event.replace("_", " "), self.latitude, self.longitude)
 
     def to_proto(self) -> SolarScheduleProto:
+        """
+        Convert the SolarSchedule instance to a Protocol Buffers message.
+        """
         return SolarScheduleProto(
             id=self.id,
             event=self.event.name,
@@ -630,6 +815,13 @@ class SolarSchedule(ScheduleModel, ModelBase):
 
 
 class ClockedSchedule(ScheduleModel, ModelBase):
+    """
+    ClockedSchedule model for periodic tasks that run at a specific time.
+    A clocked schedule runs a task at a specific datetime.
+    Attributes:
+        - id (int): The unique identifier for the clocked schedule.
+        - clocked_time (datetime): The specific time when the task should run.
+    """
 
     __verbose_name__ = "clockeds"
 
@@ -637,15 +829,29 @@ class ClockedSchedule(ScheduleModel, ModelBase):
     clocked_time = sa.Column(sa.DateTime(timezone=True))
 
     def __repr__(self):
+        """
+        Return a string representation of the ClockedSchedule instance.
+        """
         return f"{self.clocked_time}"
 
     @property
     def schedule(self):
+        """
+        Get the schedule for the clocked schedule.
+        """
         c = clocked(clocked_time=self.clocked_time)
         return c
 
     @classmethod
     def from_schedule(cls, session, schedule):
+        """
+        Create or get a ClockedSchedule from a Celery schedule.
+        Args:
+            session (Session): The SQLAlchemy session to use.
+            schedule (schedules.clocked): The Celery schedule to convert.
+        Returns:
+            ClockedSchedule: The created or retrieved ClockedSchedule instance.
+        """
         spec = {"clocked_time": schedule.clocked_time, "tenant": os.getenv("TENANT")}
         model = session.query(ClockedSchedule).filter_by(**spec).first()
         if not model:
@@ -669,6 +875,9 @@ class ClockedSchedule(ScheduleModel, ModelBase):
         self.clocked_time = self.clocked_time.replace(microsecond=0)
 
     def to_proto(self) -> ClockedScheduleProto:
+        """
+        Convert the ClockedSchedule instance to a Protocol Buffers message.
+        """
         return ClockedScheduleProto(
             id=self.id,
             clocked_time=self.dt_to_ts(self.clocked_time),
@@ -679,6 +888,11 @@ class ClockedSchedule(ScheduleModel, ModelBase):
 
 
 def instant_defaults_listener(target, args, kwargs):
+    """
+    Listener for the 'init' event that sets default values for SQLAlchemy models.
+    This function is called when a new instance of a model is created.
+    It inspects the model's columns and sets any default values defined in the model.
+    """
     # insertion order of kwargs matters
     # copy and clear so that we can add back later at the end of the dict
     original = kwargs.copy()

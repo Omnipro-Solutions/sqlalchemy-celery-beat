@@ -43,7 +43,21 @@ logger = get_logger("sqlalchemy_celery_beat.schedulers")
 
 
 class ModelEntry(ScheduleEntry):
-    """Scheduler entry taken from database row."""
+    """
+    Scheduler entry taken from database row.
+    Analogous to celery.beat.ScheduleEntry
+    (which is taken from a dict entry).
+    See celery.beat.ScheduleEntry for more information.
+        1. It is instantiated by passing a PeriodicTask model instance.
+        2. It reads the schedule from the related model (e.g. CrontabSchedule).
+        3. It is responsible for updating the model (last_run_at, total_run_count).
+        4. It is instantiated by the Scheduler.
+        5. It is used by the Scheduler to determine when the task is due next.
+        6. It is used by the Scheduler to create the task to be sent to the worker.
+        7. It is used by the Scheduler to save changes to the model.
+        8. It is used by the Scheduler to create new entries from a dict.
+        9. It is used by the Scheduler to convert schedules to model instances.
+    """
 
     model_schedules = (
         # (schedule_type, model_type)
@@ -55,7 +69,17 @@ class ModelEntry(ScheduleEntry):
     save_fields = ["last_run_at", "total_run_count", "no_changes"]
 
     def __init__(self, model, Session, app=None, **kw):
-        """Initialize the model entry."""
+        """
+        Initialize the model entry.
+        Args:
+            model (PeriodicTask): The PeriodicTask model instance.
+            Session (sessionmaker): The SQLAlchemy session factory.
+            app (Celery): The Celery application instance.
+        Kwargs:
+            Additional keyword arguments (not used).
+        Raises:
+            ValueError: If the schedule cannot be determined from the model.
+        """
         self.app = app or current_app._get_current_object()
         self.Session = Session
         self.name = model.name
@@ -117,6 +141,10 @@ class ModelEntry(ScheduleEntry):
         self.last_run_at = maybe_make_aware(self.last_run_at).astimezone(self.app.timezone)
 
     def _disable(self, model):
+        """
+        Disable the periodic task.
+        This is called when there is an error with the schedule or arguments.
+        """
         model.no_changes = True
         self.model.enabled = self.enabled = model.enabled = False
         session = self.Session()
@@ -126,6 +154,10 @@ class ModelEntry(ScheduleEntry):
             # session.refresh(model)
 
     def is_due(self):
+        """
+        Return a tuple of (due: bool, next_time_to_check: float).
+        See celery.beat.ScheduleEntry.is_due for more information.
+        """
         if not self.model.enabled:
             # 5 second delay for re-enable.
             return schedules.schedstate(False, 5.0)
@@ -155,10 +187,20 @@ class ModelEntry(ScheduleEntry):
         return self.schedule.is_due(self.last_run_at)
 
     def _default_now(self):
+        """
+        Get the current time with timezone information.
+        Returns:
+            datetime: The current UTC time with timezone information.
+        """
         now = maybe_make_aware(dt.datetime.utcnow())
         return now
 
     def __next__(self):
+        """
+        Update the last run time and total run count.
+        Returns:
+            ModelEntry: A new instance of ModelEntry with updated values.
+        """
         self.model.last_run_at = self._default_now()
         self.model.total_run_count += 1
         self.model.no_changes = True
@@ -168,7 +210,16 @@ class ModelEntry(ScheduleEntry):
 
     def save(self, fields=tuple()):
         """
-        :params fields: tuple, the additional fields to save
+        Save the current model state to the database.
+        Args:
+            fields (tuple): Additional fields to save.
+        1. It will only save the fields in self.save_fields and the fields passed in.
+        2. It will acquire a row-level lock on the PeriodicTask row to prevent
+           concurrent updates.
+        3. If the row has been deleted, it will log a warning and not raise an error.
+        4. It will commit the transaction after updating the fields.
+        5. It will use a new session for the operation.
+        6. It will handle session cleanup using the session_cleanup context manager.
         """
         session = self.Session()
         with session_cleanup(session):
@@ -188,6 +239,16 @@ class ModelEntry(ScheduleEntry):
 
     @classmethod
     def to_model_schedule(cls, session, schedule):
+        """
+        Convert a Celery schedule to a corresponding model instance.
+        Args:
+            session (Session): The SQLAlchemy session to use.
+            schedule (schedules.schedule): The Celery schedule to convert.
+        Returns:
+            ScheduleModel: The corresponding model instance.
+        Raises:
+            ValueError: If the schedule type is not supported.
+        """
         for schedule_type, model_class in cls.model_schedules:
             # change to schedule
             schedule = schedules.maybe_schedule(schedule)
@@ -199,6 +260,19 @@ class ModelEntry(ScheduleEntry):
     @classmethod
     def from_entry(cls, name, Session, app=None, **entry):
         """
+        Create or update a ModelEntry from a dict entry.
+        Args:
+            name (str): The name of the periodic task.
+            Session (sessionmaker): The SQLAlchemy session factory.
+            app (Celery): The Celery application instance.
+        Kwargs:
+            Additional fields for the periodic task.
+        Returns:
+            ModelEntry: The created or updated ModelEntry instance.
+        Raises:
+            ValueError: If there is an error creating or updating the entry.
+            KeyError: If a required field is missing from the entry.
+            TypeError: If the entry is not a valid dict.
 
         **entry sample:
 
@@ -223,6 +297,21 @@ class ModelEntry(ScheduleEntry):
     @classmethod
     def _unpack_fields(cls, session, schedule, args=None, kwargs=None, relative=None, options=None, **entry):
         """
+        Unpack the fields from the entry dict into the appropriate model fields.
+        Args:
+            session (Session): The SQLAlchemy session to use.
+            schedule (schedules.schedule): The Celery schedule to convert.
+            args (list): The positional arguments for the task.
+            kwargs (dict): The keyword arguments for the task.
+            relative (bool): Whether the schedule is relative.
+            options (dict): Additional options for the task.
+            entry (dict): Additional fields for the periodic task.
+        Returns:
+            dict: The unpacked fields for the periodic task.
+        Raises:
+            ValueError: If there is an error unpacking the fields.
+            KeyError: If a required field is missing from the entry.
+            TypeError: If the entry is not a valid dict.
 
         **entry sample:
 
@@ -255,6 +344,21 @@ class ModelEntry(ScheduleEntry):
         expires=None,
         start_time=None,
     ):
+        """
+        Unpack the options into the appropriate model fields.
+        Args:
+            queue (str): The name of the queue to use.
+            exchange (str): The name of the exchange to use.
+            routing_key (str): The routing key to use.
+            priority (int): The priority of the task.
+            headers (dict): The headers to include with the task.
+            one_off (bool): Whether the task is a one-off task.
+            expire_seconds (int): The number of seconds until the task expires.
+            expires (datetime): The expiration time for the task.
+            start_time (datetime): The start time for the task.
+        Returns:
+            dict: The unpacked options for the periodic task.
+        """
         data = {
             "queue": queue,
             "exchange": exchange,
@@ -273,6 +377,9 @@ class ModelEntry(ScheduleEntry):
         return data
 
     def __repr__(self):
+        """
+        Return a string representation of the ModelEntry instance.
+        """
         return "<ModelEntry: {0} {1}(*{2}, **{3}) {4}>".format(
             safe_str(self.name),
             self.task,
@@ -283,6 +390,9 @@ class ModelEntry(ScheduleEntry):
 
 
 class DatabaseScheduler(Scheduler):
+    """
+    Database-backed scheduler for Celery.
+    """
 
     Entry = ModelEntry
     Model = PeriodicTask
@@ -294,7 +404,27 @@ class DatabaseScheduler(Scheduler):
     _heap_invalidated = False
 
     def __init__(self, *args, **kwargs):
-        """Initialize the database scheduler."""
+        """
+        Initialize the database scheduler.
+        Args:
+            args: Positional arguments (not used).
+            kwargs: Keyword arguments.
+        Kwargs:
+            app (Celery): The Celery application instance.
+            dburi (str): The database URI.
+            schema (str): The database schema.
+            engine_options (dict): Additional options for the SQLAlchemy engine.
+            max_interval (int): The maximum interval between scheduler ticks.
+        1. It sets up the database connection using the provided dburi, schema, and
+           engine_options.
+        2. It creates the necessary database tables if they do not exist.
+        3. It initializes the parent Scheduler class.
+        4. It sets up a Finalize object to ensure the sync method is called on exit.
+        5. It sets the max_interval for the scheduler ticks.
+        6. It initializes internal state variables for tracking schedule changes.
+        Raises:
+            KeyError: If the 'app' keyword argument is not provided.
+        """
         self.app = kwargs["app"]
         self.dburi = kwargs.get("dburi") or self.app.conf.get("beat_dburi") or DEFAULT_BEAT_DBURI
         self.schema = kwargs.get("schema") or self.app.conf.get("beat_schema") or DEFAULT_BEAT_SCHEMA
@@ -312,12 +442,31 @@ class DatabaseScheduler(Scheduler):
         self.max_interval = kwargs.get("max_interval") or self.app.conf.beat_max_loop_interval or DEFAULT_MAX_INTERVAL
 
     def setup_schedule(self):
-        """override"""
+        """
+        override method in parent class.
+        It will be called in parent class __init__.
+        1. It installs default entries into the schedule.
+        2. It updates the schedule from the app configuration.
+        3. It logs the setup process.
+        4. It uses the install_default_entries and update_from_dict methods.
+        5. It does not return any value.
+        6. It is called only once during the initialization of the scheduler.
+        """
         logger.info("setup_schedule")
         self.install_default_entries(self.schedule)
         self.update_from_dict(self.app.conf.beat_schedule)
 
     def all_as_schedule(self):
+        """
+        Read the schedule from the database.
+        Returns:
+            dict: A dictionary of schedule entries.
+        1. It queries the database for all enabled PeriodicTask entries.
+        2. It creates a ModelEntry for each enabled PeriodicTask.   
+        3. It handles ValueError exceptions that may occur during ModelEntry creation.
+        4. It uses a new session for the operation.
+        5. It handles session cleanup using the session_cleanup context manager.
+        """
         session = self.Session()
         with session_cleanup(session):
             logger.debug("DatabaseScheduler: Fetching database schedule")
@@ -332,6 +481,9 @@ class DatabaseScheduler(Scheduler):
             return s
 
     def schedule_changed(self):
+        """
+        Check if the schedule has changed.
+        """
         session = self.Session()
         with session_cleanup(session):
             changes = session.query(self.Changes).get(1)
@@ -361,7 +513,14 @@ class DatabaseScheduler(Scheduler):
         return new_entry
 
     def sync(self):
-        """override"""
+        """
+        override method in parent class.
+        It will be called in parent class __init__.
+        Write all dirty entries to the database.
+        1. It iterates over the dirty entries and saves them to the database.
+        2. It handles KeyError exceptions that may occur during saving.
+        3. It handles DatabaseError and InterfaceError exceptions that may occur during the operation.
+        """
         logger.debug("Writing entries...")
         _tried = set()
         _failed = set()
@@ -384,6 +543,11 @@ class DatabaseScheduler(Scheduler):
             self._dirty |= _failed
 
     def update_from_dict(self, dict_):
+        """
+        Update the schedule from a dictionary.
+        Args:
+            dict_ (dict): A dictionary of schedule entries.
+        """
         s = {}
         for name, entry_fields in dict_.items():
             # {'task': 'celery.backend_cleanup',
@@ -400,6 +564,9 @@ class DatabaseScheduler(Scheduler):
         self.schedule.update(s)
 
     def install_default_entries(self, data):
+        """
+        Install default schedule entries.
+        """
         entries = {}
         if self.app.conf.result_expires:
             entries.setdefault(
@@ -415,6 +582,10 @@ class DatabaseScheduler(Scheduler):
         self.update_from_dict(entries)
 
     def schedules_equal(self, *args, **kwargs):
+        """
+        override method in parent class.
+        It will be called in parent class.
+        """
         if self._heap_invalidated:
             self._heap_invalidated = False
             return False
@@ -422,6 +593,13 @@ class DatabaseScheduler(Scheduler):
 
     @property
     def schedule(self):
+        """
+        override method in parent class.
+        It will be called in parent class.
+        1. It checks if the schedule has changed in the database.
+        2. If the schedule has changed, it reads the schedule from the database
+           and updates the internal schedule.
+        """
         initial = update = False
         if self._initial_read:
             logger.debug("DatabaseScheduler: initial read")
@@ -449,6 +627,8 @@ class DatabaseScheduler(Scheduler):
 
     @property
     def info(self):
-        """override"""
+        """
+        Information about the scheduler.
+        """
         # return infomation about Schedule
         return "    . db -> {self.dburi}".format(self=self)
