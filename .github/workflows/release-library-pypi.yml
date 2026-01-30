@@ -4,11 +4,12 @@ on:
   push:
     branches:
       - develop
+      - feature/NVOMS-4050-omni-version-library
 
 jobs:
   deploy:
     runs-on: ubuntu-latest
-    environment: master
+    environment: develop
     steps:
       - name: Checkout branch
         uses: actions/checkout@v2
