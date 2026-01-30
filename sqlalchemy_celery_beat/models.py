@@ -11,9 +11,8 @@ from zoneinfo import ZoneInfo, available_timezones
 import sqlalchemy as sa
 from celery import schedules
 from celery.utils.log import get_logger
-from celery.utils.time import make_aware, maybe_make_aware
+from celery.utils.time import maybe_make_aware
 from google.protobuf.wrappers_pb2 import BoolValue, FloatValue
-from omni.pro.user.access import INTERNAL_USER
 from omni_pro_grpc.v1.tasks.clocked_pb2 import Clocked as ClockedScheduleProto
 from omni_pro_grpc.v1.tasks.crontab_pb2 import Crontab as CrontabScheduleProto
 from omni_pro_grpc.v1.tasks.interval_pb2 import Interval as IntervalScheduleProto
@@ -21,7 +20,7 @@ from omni_pro_grpc.v1.tasks.periodic_task_pb2 import PeriodicTask as PeriodicTas
 from omni_pro_grpc.v1.tasks.solar_pb2 import Solar as SolarScheduleProto
 from sqlalchemy import event
 from sqlalchemy.future import Connection
-from sqlalchemy.orm import Session, backref, foreign, relationship, remote, validates
+from sqlalchemy.orm import Session, backref, foreign, relationship, remote
 from sqlalchemy.sql import insert, select, update
 
 from .clockedschedule import clocked
@@ -29,6 +28,8 @@ from .session import ModelBase
 from .tzcrontab import TzAwareCrontab
 
 logger = get_logger("sqlalchemy_celery_beat.models")
+
+INTERNAL_USER = "internal"
 
 
 class ModelMixin(object):

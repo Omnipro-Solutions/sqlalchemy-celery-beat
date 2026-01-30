@@ -13,10 +13,17 @@ from celery.utils.log import get_logger
 from celery.utils.time import maybe_make_aware
 from kombu.utils.encoding import safe_repr, safe_str
 from kombu.utils.json import dumps, loads
-from omni.pro.user.access import INTERNAL_USER
 
 from .clockedschedule import clocked
-from .models import ClockedSchedule, CrontabSchedule, IntervalSchedule, PeriodicTask, PeriodicTaskChanged, SolarSchedule
+from .models import (
+    INTERNAL_USER,
+    ClockedSchedule,
+    CrontabSchedule,
+    IntervalSchedule,
+    PeriodicTask,
+    PeriodicTaskChanged,
+    SolarSchedule,
+)
 from .session import SessionManager, session_cleanup
 from .time_utils import NEVER_CHECK_TIMEOUT
 
@@ -238,7 +245,7 @@ class ModelEntry(ScheduleEntry):
             {"schedule_model": model_schedule},
             args=dumps(args or []),
             kwargs=dumps(kwargs or {}),
-            **cls._unpack_options(**options or {})
+            **cls._unpack_options(**options or {}),
         )
         return entry
 
@@ -378,7 +385,7 @@ class DatabaseScheduler(Scheduler):
         except sa.exc.DatabaseError as exc:
             logger.exception("Database error while sync: %r", exc)
         except sa.exc.InterfaceError as exc:
-            logger.warning("DatabaseScheduler: InterfaceError in sync(), " "waiting to retry in next call...")
+            logger.warning("DatabaseScheduler: InterfaceError in sync(), " f"waiting to retry in next call... {exc}")
         finally:
             # retry later, only for the failed ones
             self._dirty |= _failed
