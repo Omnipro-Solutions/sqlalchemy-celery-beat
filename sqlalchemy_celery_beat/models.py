@@ -67,7 +67,7 @@ class SolarEvent(str, enum.Enum):
 class PeriodicTaskChanged(ModelBase, ModelMixin):
     """Helper table for tracking updates to periodic tasks."""
 
-    __table_args__ = {"sqlite_autoincrement": False, "schema": "celery_schema"}
+    __table_args__ = {"sqlite_autoincrement": False, "schema": "public"}
 
     id = sa.Column(sa.Integer, primary_key=True)
     last_update = sa.Column(
@@ -131,7 +131,7 @@ class PeriodicTask(ModelBase, ModelMixin):
 
     __table_args__ = (
         sa.CheckConstraint(sa.column("priority").between(0, 255)),
-        {"sqlite_autoincrement": True, "schema": "celery_schema"},
+        {"sqlite_autoincrement": True, "schema": "public"},
     )
 
     __verbose_name__ = "periodic_tasks"
@@ -373,7 +373,7 @@ class IntervalSchedule(ScheduleModel, ModelBase):
 
     __table_args__ = (
         sa.CheckConstraint(sa.column("every") >= 1),
-        {"sqlite_autoincrement": True, "schema": "celery_schema"},
+        {"sqlite_autoincrement": True, "schema": "public"},
     )
 
     __verbose_name__ = "intervals"
@@ -567,7 +567,7 @@ class SolarSchedule(ScheduleModel, ModelBase):
         sa.UniqueConstraint("event", "latitude", "longitude"),
         sa.CheckConstraint(sa.column("latitude").between(-90, 90)),
         sa.CheckConstraint(sa.column("longitude").between(-180, 180)),
-        {"sqlite_autoincrement": True, "schema": "celery_schema"},
+        {"sqlite_autoincrement": True, "schema": "public"},
     )
 
     __verbose_name__ = "solars"
