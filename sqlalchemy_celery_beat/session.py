@@ -28,7 +28,7 @@ class Base(OmniBase):
 
     id = Column(Integer, primary_key=True)
 
-    __table_args__ = {"sqlite_autoincrement": True, "schema": "celery_schema"}
+    __table_args__ = {"sqlite_autoincrement": True, "schema": "public"}
 
 
 ModelBase = declarative_base(cls=Base)
@@ -77,7 +77,7 @@ class SessionManager:
 
     def create_session(self, dburi, schema=None, short_lived_sessions=False, **kwargs):
         engine = self.get_engine(dburi, future=True, **kwargs)
-        engine = engine.execution_options(schema_translate_map={"celery_schema": schema})
+        engine = engine.execution_options(schema_translate_map={"public": schema})
         if self.forked:
             if short_lived_sessions or dburi not in self._sessions:
                 self._sessions[dburi] = sessionmaker(bind=engine, expire_on_commit=False)
