@@ -23,20 +23,15 @@ jobs:
         run: |
           python -m pip install --upgrade pip build
           
-      - name: Get next version
-        id: generate_release_tag
-        uses: phish108/autotag-action@1.1.53
-        with:
-          github-token: ${{ secrets.TOKEN_GITHUB}}
-          with-v: "true"
-          bump: patch
+      - name: Get version from setup.py
+        id: get_version
+        run: |
+          VERSION=$(python -c "import re; content=open('setup.py').read(); print(re.search(r'version=[\"\\x27]([^\"\\x27]+)[\"\\x27]', content).group(1))")
+          echo "version=v${VERSION}" >> $GITHUB_OUTPUT
+          echo "Package version: v${VERSION}"
 
       - name: Build package
         run: python -m build
-
-      - name: Check Output Parameters
-        run: |
-          echo "Got tag name ${{ steps.generate_release_tag.outputs.new-tag }}"
 
       - name: Create Release
         id: create_release
@@ -44,8 +39,8 @@ jobs:
         env:
           GITHUB_TOKEN: ${{ secrets.TOKEN_GITHUB }}
         with:
-          tag_name: ${{ steps.generate_release_tag.outputs.new-tag }}
-          release_name: Release ${{ steps.generate_release_tag.outputs.new-tag }}
+          tag_name: ${{ steps.get_version.outputs.version }}
+          release_name: Release ${{ steps.get_version.outputs.version }}
 
       - name: Upload Release Assets
         id: upload-release-assets
