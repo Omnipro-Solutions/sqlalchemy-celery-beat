@@ -5,8 +5,8 @@ from zoneinfo import ZoneInfo, available_timezones
 import pytest
 from celery import schedules
 from celery.utils.time import make_aware
-from sqlalchemy_celery_beat.models import ClockedSchedule, CrontabSchedule, IntervalSchedule, Period, SolarEvent
-from sqlalchemy_celery_beat.session import SessionManager, session_cleanup
+from omni_celery_beat.models import ClockedSchedule, CrontabSchedule, IntervalSchedule, Period, SolarEvent
+from omni_celery_beat.session import SessionManager, session_cleanup
 
 
 class TestMixin:
@@ -94,14 +94,14 @@ class test_ClockedScheduleTestCase(TestDuplicatesMixin, TestMixin):
         self.app.conf.timezone = "Africa/Cairo"
 
     def test_duplicate_schedules(self):
-        now = make_aware(datetime.datetime.utcnow(), ZoneInfo("UTC"))
+        now = make_aware(datetime.datetime.now(tz=datetime.timezone.utc), ZoneInfo("UTC"))
         kwargs = {"clocked_time": now} | self.audit_dict
         self._test_duplicate_schedules(ClockedSchedule, self.session, kwargs)
 
     # IMPORTANT: we must have a valid timezone (not UTC) for accurate testing
     def test_timezone_format(self, set_timezone):
         """Ensure scheduled time is not shown in UTC when timezone is used"""
-        tz_info = datetime.datetime.now(ZoneInfo(self.app.conf.timezone))
+        tz_info = datetime.datetime.now(tz=ZoneInfo(self.app.conf.timezone))
         with session_cleanup(self.session):
             schedule = self.session.query(ClockedSchedule).filter_by(clocked_time=tz_info).first()
             if not schedule:

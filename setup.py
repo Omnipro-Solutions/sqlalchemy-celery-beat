@@ -1,5 +1,5 @@
 """
-    sqlalchemy-celery-beat
+    omni-celery-beat
     ~~~~~~~~~~~~~~
     A Scheduler Based SQLalchemy For Celery.
     :Copyright (c) 2023 Mohamed Farahat
@@ -21,16 +21,16 @@ with open(path.join(basedir, "README.md"), encoding="utf-8") as f:
     long_description = f.read()
 
 setup(
-    name="sqlalchemy_celery_beat",
+    name="omni_celery_beat",
     # Versions should comply with PEP440.  For a discussion on single-sourcing
     # the version across setup.py and the project code, see
     # https://packaging.python.org/en/latest/single_source_version.html
-    version="0.8.2",
+    version="1.0.0",
     # The project's main homepage.
     url="https://github.com/farahats9/sqlalchemy-celery-beat",
     # Choose your license
     license="MIT",
-    description="A Scheduler Based SQLalchemy For Celery",
+    description="A Scheduler Based SQLAlchemy For Celery (OmniPro fork)",
     long_description=long_description,
     long_description_content_type="text/markdown",
     platforms="any",
@@ -69,7 +69,7 @@ setup(
     # https://packaging.python.org/en/latest/requirements.html
     entry_points={
         "celery.beat_schedulers": [
-            "sqlalchemy = sqlalchemy_celery_beat.schedulers:DatabaseScheduler",
+            "sqlalchemy = omni_celery_beat.schedulers:DatabaseScheduler",
         ],
     },
     install_requires=[

@@ -9,9 +9,9 @@ import pytest
 import sqlalchemy as sa
 from celery.schedules import crontab, schedule, solar
 from celery.utils.time import make_aware
-from sqlalchemy_celery_beat import schedulers
-from sqlalchemy_celery_beat.clockedschedule import clocked
-from sqlalchemy_celery_beat.models import (
+from omni_celery_beat import schedulers
+from omni_celery_beat.clockedschedule import clocked
+from omni_celery_beat.models import (
     ClockedSchedule,
     CrontabSchedule,
     IntervalSchedule,
@@ -20,8 +20,8 @@ from sqlalchemy_celery_beat.models import (
     PeriodicTaskChanged,
     SolarSchedule,
 )
-from sqlalchemy_celery_beat.session import SessionManager, session_cleanup
-from sqlalchemy_celery_beat.time_utils import NEVER_CHECK_TIMEOUT
+from omni_celery_beat.session import SessionManager, session_cleanup
+from omni_celery_beat.time_utils import NEVER_CHECK_TIMEOUT
 
 _ids = count(0)
 os.environ["TENANT"] = "test"
@@ -30,7 +30,7 @@ os.environ["TENANT"] = "test"
 @pytest.fixture(autouse=True)
 def no_multiprocessing_finalizers(patching):
     patching("multiprocessing.util.Finalize")
-    patching("sqlalchemy_celery_beat.schedulers.Finalize")
+    patching("omni_celery_beat.schedulers.Finalize")
 
 
 class EntryTrackSave(schedulers.ModelEntry):
