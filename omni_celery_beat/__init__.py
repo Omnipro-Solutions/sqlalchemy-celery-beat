@@ -12,5 +12,5 @@ from .schedulers import DatabaseScheduler
 __version__ = '0.8.0'
 __author__ = 'Mohamed Farahat'
 __contact__ = 'farahats9@yahoo.com'
-__homepage__ = 'https://github.com/farahats9/sqlalchemy-celery-beat'
+__homepage__ = 'https://github.com/farahats9/sqlalchemy-celery-beat'  # upstream
 __docformat__ = 'restructuredtext'

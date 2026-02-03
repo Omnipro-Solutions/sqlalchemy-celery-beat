@@ -1,6 +1,6 @@
 import pytest
-from sqlalchemy_celery_beat.models import CrontabSchedule
-from sqlalchemy_celery_beat.session import SessionManager, session_cleanup
+from omni_celery_beat.models import CrontabSchedule
+from omni_celery_beat.session import SessionManager, session_cleanup
 
 
 class TestMixin:

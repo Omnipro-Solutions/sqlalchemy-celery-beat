@@ -46,7 +46,7 @@ Cannot add entry %r to database schedule: %r. Contents: %r
 session_manager = SessionManager()
 
 
-logger = get_logger("sqlalchemy_celery_beat.schedulers")
+logger = get_logger("omni_celery_beat.schedulers")
 
 
 class ModelEntry(ScheduleEntry):

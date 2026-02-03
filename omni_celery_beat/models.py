@@ -28,7 +28,7 @@ from .clockedschedule import clocked
 from .session import ModelBase
 from .tzcrontab import TzAwareCrontab
 
-logger = get_logger("sqlalchemy_celery_beat.models")
+logger = get_logger("omni_celery_beat.models")
 
 INTERNAL_USER = "internal"
 

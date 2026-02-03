@@ -34,8 +34,8 @@ Console 3::
 
 
 >>> import json
->>> from sqlalchemy_celery_beat.models import PeriodicTask, IntervalSchedule, Period
->>> from sqlalchemy_celery_beat.session import SessionManager
+>>> from omni_celery_beat.models import PeriodicTask, IntervalSchedule, Period
+>>> from omni_celery_beat.session import SessionManager
 
 >>> beat_dburi = 'sqlite:///schedule.db'
 >>> session_manager = SessionManager()
@@ -80,8 +80,8 @@ from celery import Celery, schedules
 
 # load environment variable from .env
 from dotenv import load_dotenv
-from sqlalchemy_celery_beat.clockedschedule import clocked
-from sqlalchemy_celery_beat.schedulers import DatabaseScheduler  # noqa
+from omni_celery_beat.clockedschedule import clocked
+from omni_celery_beat.schedulers import DatabaseScheduler  # noqa
 
 dotenv_path = os.path.join(os.path.abspath(os.path.dirname(__file__)), ".env")
 if os.path.exists(dotenv_path):
@@ -133,7 +133,7 @@ beat_schedule = {
     },
 }
 
-beat_scheduler = "sqlalchemy_celery_beat.schedulers:DatabaseScheduler"
+beat_scheduler = "omni_celery_beat.schedulers:DatabaseScheduler"
 
 beat_sync_every = 0
 
@@ -141,7 +141,7 @@ beat_sync_every = 0
 # default: 0
 beat_max_loop_interval = 10
 
-# configure sqlalchemy_celery_beat database uri
+# configure omni_celery_beat database uri
 beat_dburi = "sqlite:///schedule.db"
 # beat_dburi = 'mysql+mysqlconnector://root:root@127.0.0.1/celery-schedule'
 

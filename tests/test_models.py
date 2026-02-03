@@ -5,8 +5,8 @@ from zoneinfo import ZoneInfo, available_timezones
 import pytest
 from celery import schedules
 from celery.utils.time import make_aware
-from sqlalchemy_celery_beat.models import ClockedSchedule, CrontabSchedule, IntervalSchedule, Period, SolarEvent
-from sqlalchemy_celery_beat.session import SessionManager, session_cleanup
+from omni_celery_beat.models import ClockedSchedule, CrontabSchedule, IntervalSchedule, Period, SolarEvent
+from omni_celery_beat.session import SessionManager, session_cleanup
 
 
 class TestMixin:

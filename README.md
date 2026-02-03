@@ -1,4 +1,4 @@
-# sqlalchemy-celery-beat
+# omni-celery-beat
 
 A Scheduler Based Sqlalchemy for Celery.
 
@@ -22,20 +22,20 @@ $ pip install sqlalchemy celery
 Install from PyPi:
 
 ```
-$ pip install sqlalchemy-celery-beat
+$ pip install omni-celery-beat
 ```
 
 Install from source by cloning this repository:
 
 ```
 $ git clone git@github.com:farahats9/sqlalchemy-celery-beat.git
-$ cd sqlalchemy-celery-beat
+$ cd omni-celery-beat
 $ python setup.py install
 ```
 
 ## Usage
 
-After you have installed `sqlalchemy_celery_beat`, you can easily start with following steps:
+After you have installed `omni_celery_beat`, you can easily start with following steps:
 
 This is a demo for exmaple, you can check the code in `examples` directory
 
@@ -48,7 +48,7 @@ This is a demo for exmaple, you can check the code in `examples` directory
 2. start the celery beat with `DatabaseScheduler` as scheduler:
 
    ```
-   $ celery -A tasks beat -S sqlalchemy_celery_beat.schedulers:DatabaseScheduler -l info
+   $ celery -A tasks beat -S omni_celery_beat.schedulers:DatabaseScheduler -l info
    ```
     you can also use the shorthand argument `-S sqlalchemy`
 ## Description
@@ -59,7 +59,7 @@ Sample from the `PeriodicTask` model's table
 
 ![sqlite](screenshot/sqlite.png)
 
-When you want to update scheduler, you can update the data in `schedule.db`. But `sqlalchemy_celery_beat` don't update the scheduler immediately. Then you shoule be change the first column's `last_update` field in the `celery_periodic_task_changed` to now datetime. Finally the celery beat will update scheduler at next wake-up time.
+When you want to update scheduler, you can update the data in `schedule.db`. But `omni_celery_beat` don't update the scheduler immediately. Then you shoule be change the first column's `last_update` field in the `celery_periodic_task_changed` to now datetime. Finally the celery beat will update scheduler at next wake-up time.
 
 ### Database Configuration
 
@@ -139,8 +139,8 @@ To create a periodic task executing at an interval you must first
 create the interval object:
 
 ```python
->>> from sqlalchemy_celery_beat.models import PeriodicTask, IntervalSchedule, Period
->>> from sqlalchemy_celery_beat.session import SessionManager
+>>> from omni_celery_beat.models import PeriodicTask, IntervalSchedule, Period
+>>> from omni_celery_beat.session import SessionManager
 >>> from celeryconfig import beat_dburi
 >>> session_manager = SessionManager()
 >>> session = session_manager.session_factory(beat_dburi)
@@ -210,7 +210,7 @@ A crontab schedule has the fields: `minute`, `hour`, `day_of_week`,
 `day_of_month` and `month_of_year`, so if you want the equivalent of a
 `30 * * * *` (execute every 30 minutes) crontab entry you specify:
 
-    >>> from sqlalchemy_celery_beat.models import PeriodicTask, CrontabSchedule
+    >>> from omni_celery_beat.models import PeriodicTask, CrontabSchedule
     >>> schedule = CrontabSchedule(
     ...     minute='30',
     ...     hour='*',
@@ -255,8 +255,8 @@ If you are using a bulk operation to update or delete multiple tasks at the same
 
 example:
 ``` python
-from sqlalchemy_celery_beat.models import PeriodicTaskChanged
-from sqlalchemy_celery_beat.session import SessionManager, session_cleanup
+from omni_celery_beat.models import PeriodicTaskChanged
+from omni_celery_beat.session import SessionManager, session_cleanup
 
 session_manager = SessionManager()
 session = session_manager.session_factory(beat_dburi)
@@ -288,7 +288,7 @@ Both the worker and beat services need to be running at the same time.
 2.  As a separate process, start the beat service (specify the
     scheduler):
 
-        $ celery -A [project-name] beat -l info --scheduler sqlalchemy_celery_beat.schedulers:DatabaseScheduler
+        $ celery -A [project-name] beat -l info --scheduler omni_celery_beat.schedulers:DatabaseScheduler
 
 ## Working on adding the following features
 
