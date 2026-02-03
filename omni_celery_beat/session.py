@@ -9,8 +9,8 @@ from kombu.utils.compat import register_after_fork
 from omni.pro.models.base import Base as OmniBase
 from sqlalchemy import DDL, Column, Integer, create_engine
 from sqlalchemy.exc import DatabaseError
-from sqlalchemy.ext.declarative import declarative_base, declared_attr
-from sqlalchemy.orm import sessionmaker
+from sqlalchemy.ext.declarative import declared_attr
+from sqlalchemy.orm import sessionmaker, declarative_base
 from sqlalchemy.pool import NullPool
 
 # from sqlalchemy.schema import CreateSchema  # does not work for SA 1.4
