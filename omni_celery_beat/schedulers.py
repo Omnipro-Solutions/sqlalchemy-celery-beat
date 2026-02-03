@@ -4,6 +4,7 @@ import datetime as dt
 import logging
 import math
 import os
+import re
 from multiprocessing.util import Finalize
 
 import sqlalchemy as sa
@@ -46,7 +47,7 @@ Cannot add entry %r to database schedule: %r. Contents: %r
 session_manager = SessionManager()
 
 
-logger = get_logger("sqlalchemy_celery_beat.schedulers")
+logger = get_logger("omni_celery_beat.schedulers")
 
 
 class ModelEntry(ScheduleEntry):
@@ -162,7 +163,7 @@ class ModelEntry(ScheduleEntry):
         return self.schedule.is_due(self.last_run_at)
 
     def _default_now(self):
-        now = maybe_make_aware(dt.datetime.utcnow())
+        now = maybe_make_aware(dt.datetime.now(tz=dt.timezone.utc))
         return now
 
     def __next__(self):
@@ -276,7 +277,7 @@ class ModelEntry(ScheduleEntry):
             if isinstance(expires, int):
                 data["expire_seconds"] = expires
             elif isinstance(expires, dt.timedelta):
-                data["expires"] = dt.datetime.utcnow() + expires
+                data["expires"] = dt.datetime.now(tz=dt.timezone.utc) + expires
         return data
 
     def __repr__(self):
@@ -456,6 +457,13 @@ class DatabaseScheduler(Scheduler):
 
     @property
     def info(self):
-        """override"""
+        """Override to hide database password."""
         # return infomation about Schedule
-        return "    . db -> {self.dburi}".format(self=self)
+        return "    . db -> {}".format(redact_dburi(self.dburi))
+
+
+def redact_dburi(uri: str) -> str:
+    """
+    Replace the password in a database URI with '*****'.
+    """
+    return re.sub(r"(:\/\/[^:]+:)(.*)(?=@[^@:]+)", r"\1*****", uri)

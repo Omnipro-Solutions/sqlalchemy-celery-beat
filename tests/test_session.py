@@ -8,14 +8,14 @@ from celery import states, uuid
 from celery.app.task import Context
 from celery.exceptions import ImproperlyConfigured
 
-from sqlalchemy_celery_beat import session
+from omni_celery_beat import session
 
 pytest.importorskip("sqlalchemy")
 
 from celery.backends.database import retry
 
-from sqlalchemy_celery_beat.session import PREPARE_MODELS_MAX_RETRIES  # noqa
-from sqlalchemy_celery_beat.session import ModelBase, SessionManager, session_cleanup
+from omni_celery_beat.session import PREPARE_MODELS_MAX_RETRIES  # noqa
+from omni_celery_beat.session import ModelBase, SessionManager, session_cleanup
 
 # import skip
 
@@ -54,7 +54,7 @@ class test_SessionManager:
         s._after_fork()
         assert s.forked
 
-    @patch("sqlalchemy_celery_beat.session.create_engine")
+    @patch("omni_celery_beat.session.create_engine")
     def test_get_engine_forked(self, create_engine):
         s = SessionManager()
         s._after_fork()
@@ -64,7 +64,7 @@ class test_SessionManager:
         engine2 = s.get_engine("dburi", foo=1)
         assert engine2 is engine
 
-    @patch("sqlalchemy_celery_beat.session.create_engine")
+    @patch("omni_celery_beat.session.create_engine")
     def test_get_engine_kwargs(self, create_engine):
         s = SessionManager()
         engine = s.get_engine("dbur", foo=1, pool_size=5)
@@ -72,7 +72,7 @@ class test_SessionManager:
         engine2 = s.get_engine("dburi", foo=1)
         assert engine2 is engine
 
-    @patch("sqlalchemy_celery_beat.session.sessionmaker")
+    @patch("omni_celery_beat.session.sessionmaker")
     def test_create_session_forked(self, sessionmaker):
         s = SessionManager()
         s.get_engine = Mock(name="get_engine")
@@ -105,7 +105,7 @@ class test_SessionManager:
         finally:
             session.register_after_fork = prev
 
-    @patch("sqlalchemy_celery_beat.session.create_engine")
+    @patch("omni_celery_beat.session.create_engine")
     def test_prepare_models_terminates(self, create_engine):
         """SessionManager.prepare_models has retry logic because the creation
         of database tables by multiple workers is racy. This test patches

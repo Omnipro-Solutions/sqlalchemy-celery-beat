@@ -22,7 +22,6 @@ class TzAwareCrontab(schedules.crontab):
         self.tz = tz
 
         nowfun = self.nowfunc
-        # print(f"{minute} {hour} {day_of_week} {day_of_month} {month_of_year} {tz}")
         super(TzAwareCrontab, self).__init__(
             minute=minute,
             hour=hour,
@@ -35,7 +34,10 @@ class TzAwareCrontab(schedules.crontab):
         )
 
     def nowfunc(self):
-        return normalize(self.tz, localize(ZoneInfo("UTC"), dt.datetime.utcnow()))
+        return normalize(
+            self.tz,
+            localize(ZoneInfo("UTC"), dt.datetime.now(tz=dt.timezone.utc).replace(tzinfo=None)),
+        )
 
     def is_due(self, last_run_at):
         """Calculate when the next run will take place.
@@ -58,8 +60,8 @@ class TzAwareCrontab(schedules.crontab):
     # Needed to support pickling
     def __repr__(self):
         return """<crontab: {0._orig_minute} {0._orig_hour} \
-{0._orig_day_of_week} {0._orig_day_of_month} \
-{0._orig_month_of_year} (m/h/d/dM/MY), {0.tz}>""".format(
+{0._orig_day_of_month} {0._orig_month_of_year} \
+{0._orig_day_of_week} (m/h/dM/MY/d), {0.tz}>""".format(
             self
         )
 
