@@ -13,6 +13,7 @@ from celery import schedules
 from celery.utils.log import get_logger
 from celery.utils.time import maybe_make_aware
 from google.protobuf.wrappers_pb2 import BoolValue, FloatValue
+from omni_pro_grpc.common import base_pb2
 from omni_pro_grpc.v1.tasks.clocked_pb2 import Clocked as ClockedScheduleProto
 from omni_pro_grpc.v1.tasks.crontab_pb2 import Crontab as CrontabScheduleProto
 from omni_pro_grpc.v1.tasks.interval_pb2 import Interval as IntervalScheduleProto
@@ -322,7 +323,7 @@ class PeriodicTask(ModelBase, ModelMixin):
             one_off=BoolValue(value=self.one_off),
             priority=self.priority,
             routing_key=self.routing_key,
-            schedule_id=self.schedule_id,
+            schedule=base_pb2.ObjectResponse(id=self.schedule_id),
             start_time=self.dt_to_ts(self.start_time),
             total_run_count=self.total_run_count,
             active=BoolValue(value=self.enabled),
